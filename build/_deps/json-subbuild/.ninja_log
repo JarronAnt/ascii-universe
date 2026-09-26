@@ -1,0 +1,21 @@
+# ninja log v7
+0	10	1790464895205269782	json-populate-prefix/src/json-populate-stamp/json-populate-mkdir	279de7727b896476
+0	10	1790464895205269782	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-mkdir	279de7727b896476
+10	124047	1790465019241718140	json-populate-prefix/src/json-populate-stamp/json-populate-download	75dedb78b0bae89c
+10	124047	1790465019241718140	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-download	75dedb78b0bae89c
+124047	124064	1790465019242232469	json-populate-prefix/src/json-populate-stamp/json-populate-update	a1391b2d6377702d
+124047	124064	1790465019242232469	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-update	a1391b2d6377702d
+124064	124072	1790465019267087468	json-populate-prefix/src/json-populate-stamp/json-populate-patch	6d5d6aaab1577e01
+124064	124072	1790465019267087468	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-patch	6d5d6aaab1577e01
+124073	124081	1790465019275794229	json-populate-prefix/src/json-populate-stamp/json-populate-configure	b0840dc359926d45
+124073	124081	1790465019275794229	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-configure	b0840dc359926d45
+124081	124090	1790465019284437573	json-populate-prefix/src/json-populate-stamp/json-populate-build	d0f35e3cd841b3e1
+124081	124090	1790465019284437573	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-build	d0f35e3cd841b3e1
+124090	124098	1790465019293086001	json-populate-prefix/src/json-populate-stamp/json-populate-install	d47b970a2be527cb
+124090	124098	1790465019293086001	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-install	d47b970a2be527cb
+124098	124107	1790465019301713720	json-populate-prefix/src/json-populate-stamp/json-populate-test	37ae2012b496d018
+124098	124107	1790465019301713720	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-test	37ae2012b496d018
+124107	124119	1790465019313858868	CMakeFiles/json-populate-complete	5e9b9e7ee5bfc59e
+124107	124119	1790465019313858868	json-populate-prefix/src/json-populate-stamp/json-populate-done	5e9b9e7ee5bfc59e
+124107	124119	1790465019313858868	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/CMakeFiles/json-populate-complete	5e9b9e7ee5bfc59e
+124107	124119	1790465019313858868	/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-subbuild/json-populate-prefix/src/json-populate-stamp/json-populate-done	5e9b9e7ee5bfc59e

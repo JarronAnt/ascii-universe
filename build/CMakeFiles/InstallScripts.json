@@ -1,9 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/jarron/Desktop/Code/C/ascii-universe/build/cmake_install.cmake",
-		"/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/entt-build/cmake_install.cmake",
-		"/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

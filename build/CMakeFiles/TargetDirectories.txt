@@ -1,7 +1,0 @@
-/Users/jarron/Desktop/Code/C/ascii-universe/build/CMakeFiles/ascii_universe.dir
-/Users/jarron/Desktop/Code/C/ascii-universe/build/CMakeFiles/edit_cache.dir
-/Users/jarron/Desktop/Code/C/ascii-universe/build/CMakeFiles/rebuild_cache.dir
-/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/entt-build/CMakeFiles/edit_cache.dir
-/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/entt-build/CMakeFiles/rebuild_cache.dir
-/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-build/CMakeFiles/edit_cache.dir
-/Users/jarron/Desktop/Code/C/ascii-universe/build/_deps/json-build/CMakeFiles/rebuild_cache.dir

@@ -2,24 +2,28 @@
 #include "ascii/Components.hpp"
 #include "ascii/Items.hpp"
 #include "ascii/Jobs.hpp"
+#include "ascii/Material.hpp"
 #include "ascii/SaveManager.hpp"
 #include "ascii/Simulation.hpp"
 #include "ascii/Stockpiles.hpp"
+#include "ascii/TerminalInput.hpp"
 #include "ascii/TerminalRenderer.hpp"
 #include "ascii/WorldGenerator.hpp"
 
 #include <entt/entt.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -27,6 +31,38 @@ using namespace ascii;
 
 namespace
 {
+
+// ==================================================
+// Signal handling
+//
+// We do NOT perform saving or terminal cleanup from
+// inside the signal handler.
+//
+// The signal handler only sets a flag.
+//
+// The normal game loop sees that flag and exits
+// cleanly, allowing:
+//   - SaveManager::save()
+//   - TerminalRenderer::finish()
+//   - TerminalInput destructor
+//
+// to run normally.
+// ==================================================
+
+volatile std::sig_atomic_t interrupted =
+    0;
+
+void handleSignal(
+    int
+)
+{
+    interrupted =
+        1;
+}
+
+// ==================================================
+// Command-line options
+// ==================================================
 
 struct Options
 {
@@ -52,6 +88,10 @@ struct Options
     > stopAfterTicks;
 };
 
+// ==================================================
+// Help
+// ==================================================
+
 void printHelp()
 {
     std::cout
@@ -69,13 +109,30 @@ void printHelp()
 
         << "  ./ascii_universe "
            "--seed 12345 "
-           "--save saves/test.json\n"
+           "--save saves/world.json\n"
 
         << "  ./ascii_universe "
            "--seed 12345 "
-           "--save saves/test.json "
-           "--stop-after 25\n";
+           "--stop-after 100\n\n"
+
+        << "Controls:\n"
+
+        << "  [ or ,   View lower Z-level\n"
+
+        << "  ] or .   View higher Z-level\n"
+
+        << "  SPACE    Pause/unpause\n"
+
+        << "  s        Save\n"
+
+        << "  q        Save and quit\n"
+
+        << "  Ctrl+C   Save and quit cleanly\n";
 }
+
+// ==================================================
+// Parse command-line arguments
+// ==================================================
 
 Options parseArguments(
     int argc,
@@ -90,9 +147,8 @@ Options parseArguments(
         ++i
     )
     {
-        const std::string
-            argument =
-                argv[i];
+        const std::string argument =
+            argv[i];
 
         if (
             argument ==
@@ -167,9 +223,8 @@ Options parseArguments(
                     argv[++i]
                 };
 
-            options.
-                savePathExplicit =
-                    true;
+            options.savePathExplicit =
+                true;
 
             continue;
         }
@@ -184,8 +239,7 @@ Options parseArguments(
             )
             {
                 throw std::runtime_error(
-                    "--stop-after requires "
-                    "a tick count."
+                    "--stop-after requires a number."
                 );
             }
 
@@ -204,6 +258,9 @@ Options parseArguments(
         );
     }
 
+    // If loading a save and the user did not provide
+    // a separate save path, continue saving back into
+    // the same file.
     if (
         options.loadPath
         &&
@@ -217,80 +274,106 @@ Options parseArguments(
     return options;
 }
 
-std::uint64_t
-generateNewSeed()
-{
-    const auto now =
-        std::chrono::
-            high_resolution_clock::
-            now().
-            time_since_epoch().
-            count();
+// ==================================================
+// Generate new world seed
+// ==================================================
 
-    return static_cast<
-        std::uint64_t
-    >(now);
+std::uint64_t generateSeed()
+{
+    return
+        static_cast<
+            std::uint64_t
+        >(
+            std::chrono::
+                high_resolution_clock::
+                now().
+                time_since_epoch().
+                count()
+        );
 }
 
-entt::entity
-findGoblinByName(
+// ==================================================
+// Goblin creation helper
+// ==================================================
+
+void createGoblin(
     entt::registry& registry,
-    std::string_view name
+    const std::string& name,
+    Position position,
+    TerminalColor color,
+    bool miner,
+    bool hauler,
+    bool woodcutter
 )
 {
-    auto view =
-        registry.view<
-            Goblin,
-            Name
-        >();
+    const auto entity =
+        registry.create();
 
-    for (auto entity : view)
+    registry.emplace<
+        Goblin
+    >(entity);
+
+    registry.emplace<
+        Name
+    >(entity).value =
+        name;
+
+    registry.emplace<
+        Position
+    >(entity) =
+        position;
+
+    auto& glyph =
+        registry.emplace<
+            Glyph
+        >(entity);
+
+    glyph.character =
+        'g';
+
+    glyph.color =
+        color;
+
+    if (miner)
     {
-        if (
-            view.get<
-                Name
-            >(entity).value
-            ==
-            name
-        )
-        {
-            return entity;
-        }
+        registry.emplace<
+            Miner
+        >(entity);
     }
 
-    return entt::null;
-}
-
-entt::entity
-findFirstStockpile(
-    entt::registry& registry
-)
-{
-    auto view =
-        registry.view<
-            Stockpile
-        >();
-
-    for (auto entity : view)
+    if (hauler)
     {
-        return entity;
+        registry.emplace<
+            Hauler
+        >(entity);
     }
 
-    return entt::null;
+    if (woodcutter)
+    {
+        registry.emplace<
+            Woodcutter
+        >(entity);
+    }
 }
+
+// ==================================================
+// New world creation
+// ==================================================
 
 std::unique_ptr<Simulation>
 createNewWorld(
-    std::uint64_t seed
+    std::uint64_t seed,
+    int& initialViewZ
 )
 {
-    constexpr int
-        WorldWidth =
-            50;
+    constexpr int WorldWidth =
+        60;
 
-    constexpr int
-        WorldHeight =
-            24;
+    constexpr int WorldHeight =
+        28;
+
+    constexpr int WorldDepth =
+        12;
 
     auto simulation =
         std::make_unique<
@@ -298,12 +381,9 @@ createNewWorld(
         >(
             WorldWidth,
             WorldHeight,
+            WorldDepth,
             seed
         );
-
-    auto& registry =
-        simulation->
-            registry();
 
     const auto layout =
         WorldGenerator::generate(
@@ -311,125 +391,272 @@ createNewWorld(
             seed
         );
 
-    // ==============================================
-    // Miner
-    // ==============================================
+    initialViewZ =
+        layout.defaultViewZ;
 
-    const auto miner =
-        registry.create();
+    auto& registry =
+        simulation->registry();
 
-    registry.emplace<
-        Goblin
-    >(miner);
+    // ==================================================
+    // Uru
+    //
+    // Dedicated underground miner.
+    // ==================================================
 
-    registry.emplace<
-        Miner
-    >(miner);
+    createGoblin(
+        registry,
+        "Uru",
+        layout.minerSpawn,
+        TerminalColor::BrightGreen,
+        true,
+        false,
+        false
+    );
 
-    auto& minerName =
-        registry.emplace<
-            Name
-        >(miner);
+    // ==================================================
+    // Kesh
+    //
+    // Dedicated hauler.
+    //
+    // Can travel between Z-levels using stairs/ramps.
+    // ==================================================
 
-    minerName.value =
-        "Uru";
+    createGoblin(
+        registry,
+        "Kesh",
+        layout.haulerSpawn,
+        TerminalColor::BrightYellow,
+        false,
+        true,
+        false
+    );
 
-    auto& minerPosition =
-        registry.emplace<
-            Position
-        >(miner);
+    // ==================================================
+    // Brakka
+    //
+    // Dedicated surface woodcutter.
+    // ==================================================
 
-    minerPosition =
-        layout.minerSpawn;
+    createGoblin(
+        registry,
+        "Brakka",
+        layout.woodcutterSpawn,
+        TerminalColor::BrightCyan,
+        false,
+        false,
+        true
+    );
 
-    auto& minerGlyph =
-        registry.emplace<
-            Glyph
-        >(miner);
+    // ==================================================
+    // Surface stockpile
+    //
+    // Currently accepts all generated resource types.
+    // ==================================================
 
-    minerGlyph.character =
-        'g';
-
-    minerGlyph.color =
-        TerminalColor::
-            BrightGreen;
-
-    // ==============================================
-    // Hauler
-    // ==============================================
-
-    const auto hauler =
-        registry.create();
-
-    registry.emplace<
-        Goblin
-    >(hauler);
-
-    registry.emplace<
-        Hauler
-    >(hauler);
-
-    auto& haulerName =
-        registry.emplace<
-            Name
-        >(hauler);
-
-    haulerName.value =
-        "Kesh";
-
-    auto& haulerPosition =
-        registry.emplace<
-            Position
-        >(hauler);
-
-    haulerPosition =
-        layout.haulerSpawn;
-
-    auto& haulerGlyph =
-        registry.emplace<
-            Glyph
-        >(hauler);
-
-    haulerGlyph.character =
-        'g';
-
-    haulerGlyph.color =
-        TerminalColor::
-            BrightYellow;
-
-    // ==============================================
-    // Stone stockpile
-    // ==============================================
-
-    simulation->
-        createStockpile(
-            layout.
-                stockpileTopLeft,
-
-            layout.
-                stockpileBottomRight,
-
-            std::vector<ItemType>{
-                ItemType::Stone
+    const auto stockpile =
+        simulation->createStockpile(
+            layout.stockpileMin,
+            layout.stockpileMax,
+            {
+                ItemType::Stone,
+                ItemType::Ore,
+                ItemType::Soil,
+                ItemType::Log
             }
         );
 
-    // ==============================================
-    // Initial mining work
-    // ==============================================
+    if (
+        stockpile ==
+        entt::null
+    )
+    {
+        throw std::runtime_error(
+            "Failed to create starting stockpile."
+        );
+    }
+
+    // ==================================================
+    // Starting mining jobs
+    // ==================================================
 
     for (
         const auto target :
         layout.miningTargets
     )
     {
+        simulation->designateMine(
+            target
+        );
+    }
+
+    // ==================================================
+    // Starting tree-felling jobs
+    // ==================================================
+
+    for (
+        const auto target :
+        layout.treeTargets
+    )
+    {
         simulation->
-            designateMine(
+            designateFellTree(
                 target
             );
     }
 
+    // ==================================================
+    // Starting vertical excavation tests
+    // ==================================================
+
+    simulation->designateDigDown(
+        layout.digDownTarget
+    );
+
+    simulation->designateDigUp(
+        layout.digUpTarget
+    );
+
     return simulation;
+}
+
+// ==================================================
+// Choose sensible Z-level after loading
+// ==================================================
+
+int defaultLoadedViewZ(
+    entt::registry& registry,
+    const GameMap& map
+)
+{
+    // Prefer stockpile Z-level because that normally
+    // corresponds to the fortress/surface home level.
+    auto stockpiles =
+        registry.view<
+            Stockpile
+        >();
+
+    for (
+        auto entity :
+        stockpiles
+    )
+    {
+        const auto& stockpile =
+            stockpiles.get<
+                Stockpile
+            >(entity);
+
+        return std::clamp(
+            stockpile.bounds.min.z,
+            0,
+            map.depth() - 1
+        );
+    }
+
+    // Otherwise show the highest occupied goblin level.
+    auto goblins =
+        registry.view<
+            Goblin,
+            Position
+        >();
+
+    int highest =
+        0;
+
+    for (
+        auto entity :
+        goblins
+    )
+    {
+        highest =
+            std::max(
+                highest,
+                goblins.get<
+                    Position
+                >(entity).z
+            );
+    }
+
+    return std::clamp(
+        highest,
+        0,
+        map.depth() - 1
+    );
+}
+
+// ==================================================
+// Count visible water tiles
+// ==================================================
+
+std::size_t countWaterCells(
+    const GameMap& map,
+    int z
+)
+{
+    std::size_t result =
+        0;
+
+    for (
+        int y = 0;
+        y < map.height();
+        ++y
+    )
+    {
+        for (
+            int x = 0;
+            x < map.width();
+            ++x
+        )
+        {
+            if (
+                map.at(
+                    x,
+                    y,
+                    z
+                ).liquid.depth > 0
+            )
+            {
+                ++result;
+            }
+        }
+    }
+
+    return result;
+}
+
+// ==================================================
+// Count resources by type
+// ==================================================
+
+std::size_t countItemType(
+    entt::registry& registry,
+    ItemType type
+)
+{
+    std::size_t result =
+        0;
+
+    auto view =
+        registry.view<
+            Item
+        >();
+
+    for (
+        auto entity :
+        view
+    )
+    {
+        if (
+            view.get<
+                Item
+            >(entity).type ==
+            type
+        )
+        {
+            ++result;
+        }
+    }
+
+    return result;
 }
 
 }
@@ -441,11 +668,33 @@ int main(
 {
     try
     {
+        // ==================================================
+        // Signals
+        // ==================================================
+
+        std::signal(
+            SIGINT,
+            handleSignal
+        );
+
+        std::signal(
+            SIGTERM,
+            handleSignal
+        );
+
+        // ==================================================
+        // Arguments
+        // ==================================================
+
         const Options options =
             parseArguments(
                 argc,
                 argv
             );
+
+        // ==================================================
+        // Create/load simulation
+        // ==================================================
 
         std::unique_ptr<
             Simulation
@@ -453,6 +702,9 @@ int main(
 
         bool loaded =
             false;
+
+        int viewZ =
+            0;
 
         if (
             options.loadPath
@@ -465,18 +717,25 @@ int main(
 
             loaded =
                 true;
+
+            viewZ =
+                defaultLoadedViewZ(
+                    simulation->registry(),
+                    simulation->map()
+                );
         }
         else
         {
             const std::uint64_t seed =
                 options.seed.
                     value_or(
-                        generateNewSeed()
+                        generateSeed()
                     );
 
             simulation =
                 createNewWorld(
-                    seed
+                    seed,
+                    viewZ
                 );
         }
 
@@ -486,58 +745,52 @@ int main(
         auto& registry =
             simulation->registry();
 
-        const auto miner =
-            findGoblinByName(
-                registry,
-                "Uru"
-            );
-
-        const auto hauler =
-            findGoblinByName(
-                registry,
-                "Kesh"
-            );
-
-        const auto stockpileEntity =
-            findFirstStockpile(
-                registry
-            );
-
-        if (
-            miner == entt::null
-            ||
-            hauler == entt::null
-            ||
-            stockpileEntity ==
-                entt::null
-        )
-        {
-            throw std::runtime_error(
-                "World is missing expected "
-                "demo entities."
-            );
-        }
+        // ==================================================
+        // Terminal
+        // ==================================================
 
         TerminalRenderer renderer;
 
+        TerminalInput input;
+
+        // ==================================================
+        // Runtime state
+        // ==================================================
+
+        bool paused =
+            false;
+
+        bool running =
+            true;
+
+        std::string lastMessage =
+            loaded
+            ?
+            "Loaded save."
+            :
+            "Generated new world.";
+
+        // ==================================================
+        // HUD builder
+        // ==================================================
+
         const auto buildHud =
-            [&](
-                bool completed
-            )
+            [&]()
             {
-                std::size_t
-                    groundItems =
-                        0;
+                const JobBoard& jobs =
+                    simulation->
+                        jobBoard();
 
-                std::size_t
-                    carriedItems =
-                        0;
+                std::size_t onGround =
+                    0;
 
-                std::size_t
-                    stockpiledItems =
-                        0;
+                std::size_t carried =
+                    0;
 
-                auto itemView =
+                std::size_t stored =
+                    0;
+
+                auto itemStates =
                     registry.view<
                         Item,
                         ItemState
@@ -545,11 +798,11 @@ int main(
 
                 for (
                     auto entity :
-                    itemView
+                    itemStates
                 )
                 {
                     const auto& state =
-                        itemView.get<
+                        itemStates.get<
                             ItemState
                         >(entity);
 
@@ -557,53 +810,33 @@ int main(
                         state.location
                     )
                     {
-                        case
-                            ItemLocation::
-                                OnGround:
+                        case ItemLocation::
+                            OnGround:
 
-                            ++groundItems;
+                            ++onGround;
                             break;
 
-                        case
-                            ItemLocation::
-                                Carried:
+                        case ItemLocation::
+                            Carried:
 
-                            ++carriedItems;
+                            ++carried;
                             break;
 
-                        case
-                            ItemLocation::
-                                Stockpiled:
+                        case ItemLocation::
+                            Stockpiled:
 
-                            ++stockpiledItems;
+                            ++stored;
                             break;
                     }
                 }
 
-                const auto& jobs =
-                    simulation->
-                        jobBoard();
-
-                const auto& minerPos =
-                    registry.get<
-                        Position
-                    >(miner);
-
-                const auto& haulerPos =
-                    registry.get<
-                        Position
-                    >(hauler);
-
-                const auto& stockpile =
-                    registry.get<
-                        Stockpile
-                    >(
-                        stockpileEntity
-                    );
-
                 std::vector<
                     std::string
                 > lines;
+
+                // ------------------------------------------
+                // Simulation header
+                // ------------------------------------------
 
                 lines.push_back(
                     "ASCII Universe | Tick "
@@ -612,15 +845,34 @@ int main(
                         simulation->
                             time().tick
                     )
+                    +
+                    " | Z "
+                    +
+                    std::to_string(
+                        viewZ
+                    )
+                    +
+                    "/"
+                    +
+                    std::to_string(
+                        map.depth() - 1
+                    )
                 );
 
                 lines.push_back(
                     std::string{
-                        loaded
+                        paused
                         ?
-                        "Loaded world"
+                        "PAUSED"
                         :
-                        "Generated world"
+                        (
+                            simulation->
+                                hasOutstandingWork()
+                            ?
+                            "WORKING"
+                            :
+                            "IDLE"
+                        )
                     }
                     +
                     " | Seed "
@@ -631,8 +883,12 @@ int main(
                     )
                 );
 
+                // ------------------------------------------
+                // Jobs
+                // ------------------------------------------
+
                 lines.push_back(
-                    "Jobs A:"
+                    "Jobs | available:"
                     +
                     std::to_string(
                         jobs.count(
@@ -641,7 +897,7 @@ int main(
                         )
                     )
                     +
-                    " X:"
+                    " assigned:"
                     +
                     std::to_string(
                         jobs.count(
@@ -650,7 +906,7 @@ int main(
                         )
                     )
                     +
-                    " C:"
+                    " complete:"
                     +
                     std::to_string(
                         jobs.count(
@@ -658,100 +914,221 @@ int main(
                                 Complete
                         )
                     )
-                );
-
-                lines.push_back(
-                    "Items ground:"
+                    +
+                    " cancelled:"
                     +
                     std::to_string(
-                        groundItems
+                        jobs.count(
+                            JobState::
+                                Cancelled
+                        )
+                    )
+                );
+
+                // ------------------------------------------
+                // Items
+                // ------------------------------------------
+
+                lines.push_back(
+                    "Items | ground:"
+                    +
+                    std::to_string(
+                        onGround
                     )
                     +
                     " carried:"
                     +
                     std::to_string(
-                        carriedItems
+                        carried
                     )
                     +
                     " stored:"
                     +
                     std::to_string(
-                        stockpiledItems
+                        stored
                     )
                 );
 
                 lines.push_back(
-                    "Reserved cells: "
+                    "Resources | stone:"
                     +
                     std::to_string(
-                        stockpile.
-                            reservedCells.
-                            size()
+                        countItemType(
+                            registry,
+                            ItemType::Stone
+                        )
+                    )
+                    +
+                    " ore:"
+                    +
+                    std::to_string(
+                        countItemType(
+                            registry,
+                            ItemType::Ore
+                        )
+                    )
+                    +
+                    " soil:"
+                    +
+                    std::to_string(
+                        countItemType(
+                            registry,
+                            ItemType::Soil
+                        )
+                    )
+                    +
+                    " logs:"
+                    +
+                    std::to_string(
+                        countItemType(
+                            registry,
+                            ItemType::Log
+                        )
                     )
                 );
 
-                lines.push_back(
-                    "Uru  Miner  ("
-                    +
-                    std::to_string(
-                        minerPos.x
-                    )
-                    +
-                    ","
-                    +
-                    std::to_string(
-                        minerPos.y
-                    )
-                    +
-                    ")"
-                );
+                // ------------------------------------------
+                // Water
+                // ------------------------------------------
 
                 lines.push_back(
-                    "Kesh Hauler ("
+                    "Water cells on current Z: "
                     +
                     std::to_string(
-                        haulerPos.x
+                        countWaterCells(
+                            map,
+                            viewZ
+                        )
                     )
-                    +
-                    ","
-                    +
-                    std::to_string(
-                        haulerPos.y
-                    )
-                    +
-                    ")"
                 );
 
-                lines.push_back(
-                    "Save: "
-                    +
-                    options.
-                        savePath.
-                        string()
-                );
+                // ------------------------------------------
+                // Goblins
+                // ------------------------------------------
+
+                auto goblins =
+                    registry.view<
+                        Goblin,
+                        Name,
+                        Position
+                    >();
+
+                for (
+                    auto entity :
+                    goblins
+                )
+                {
+                    const auto& name =
+                        goblins.get<
+                            Name
+                        >(entity).value;
+
+                    const auto& position =
+                        goblins.get<
+                            Position
+                        >(entity);
+
+                    std::string profession =
+                        "Goblin";
+
+                    if (
+                        registry.all_of<
+                            Miner
+                        >(entity)
+                    )
+                    {
+                        profession =
+                            "Miner";
+                    }
+                    else if (
+                        registry.all_of<
+                            Hauler
+                        >(entity)
+                    )
+                    {
+                        profession =
+                            "Hauler";
+                    }
+                    else if (
+                        registry.all_of<
+                            Woodcutter
+                        >(entity)
+                    )
+                    {
+                        profession =
+                            "Woodcutter";
+                    }
+
+                    lines.push_back(
+                        name
+                        +
+                        " | "
+                        +
+                        profession
+                        +
+                        " | ("
+                        +
+                        std::to_string(
+                            position.x
+                        )
+                        +
+                        ","
+                        +
+                        std::to_string(
+                            position.y
+                        )
+                        +
+                        ","
+                        +
+                        std::to_string(
+                            position.z
+                        )
+                        +
+                        ")"
+                    );
+                }
+
+                // ------------------------------------------
+                // Legend
+                // ------------------------------------------
 
                 lines.push_back(
-                    completed
-                    ?
-                    "Status: COMPLETE"
-                    :
-                    "Status: RUNNING"
+                    "Legend: # rock | . floor | T tree | 1-7 water | < up | > down | X up/down | ^ ramp"
+                );
+
+                // ------------------------------------------
+                // Controls
+                // ------------------------------------------
+
+                lines.push_back(
+                    "[/, lower Z | ]/. higher Z | SPACE pause | s save | q save+quit"
+                );
+
+                // ------------------------------------------
+                // Last status message
+                // ------------------------------------------
+
+                lines.push_back(
+                    lastMessage
                 );
 
                 return lines;
             };
 
-        bool complete =
-            !simulation->
-                hasOutstandingWork();
+        // ==================================================
+        // Initial frame
+        // ==================================================
 
         renderer.render(
             map,
             registry,
-            buildHud(
-                complete
-            )
+            viewZ,
+            buildHud()
         );
+
+        // ==================================================
+        // Timing
+        // ==================================================
 
         using Clock =
             std::chrono::
@@ -767,12 +1144,18 @@ int main(
 
         std::uint64_t
             lastAutosaveTick =
-                startingTick;
+                simulation->
+                    time().tick;
 
-        bool stoppedEarly =
-            false;
+        // ==================================================
+        // Main loop
+        // ==================================================
 
-        while (!complete)
+        while (
+            running
+            &&
+            !interrupted
+        )
         {
             const auto currentTime =
                 Clock::now();
@@ -790,34 +1173,206 @@ int main(
             previousTime =
                 currentTime;
 
-            const int ticksExecuted =
-                simulation->
-                    advance(
+            bool redraw =
+                false;
+
+            // ==============================================
+            // Input
+            // ==============================================
+
+            while (true)
+            {
+                const auto key =
+                    input.poll();
+
+                if (!key)
+                {
+                    break;
+                }
+
+                switch (*key)
+                {
+                    // --------------------------------------
+                    // Lower Z
+                    // --------------------------------------
+
+                    case '[':
+                    case ',':
+                    {
+                        const int next =
+                            std::max(
+                                0,
+                                viewZ - 1
+                            );
+
+                        if (
+                            next != viewZ
+                        )
+                        {
+                            viewZ =
+                                next;
+
+                            lastMessage =
+                                "Viewing Z "
+                                +
+                                std::to_string(
+                                    viewZ
+                                );
+
+                            redraw =
+                                true;
+                        }
+
+                        break;
+                    }
+
+                    // --------------------------------------
+                    // Higher Z
+                    // --------------------------------------
+
+                    case ']':
+                    case '.':
+                    {
+                        const int next =
+                            std::min(
+                                map.depth() - 1,
+                                viewZ + 1
+                            );
+
+                        if (
+                            next != viewZ
+                        )
+                        {
+                            viewZ =
+                                next;
+
+                            lastMessage =
+                                "Viewing Z "
+                                +
+                                std::to_string(
+                                    viewZ
+                                );
+
+                            redraw =
+                                true;
+                        }
+
+                        break;
+                    }
+
+                    // --------------------------------------
+                    // Pause
+                    // --------------------------------------
+
+                    case ' ':
+                    {
+                        paused =
+                            !paused;
+
+                        lastMessage =
+                            paused
+                            ?
+                            "Simulation paused."
+                            :
+                            "Simulation resumed.";
+
+                        // Important:
+                        //
+                        // Reset timing when unpausing so the
+                        // game doesn't try to simulate all
+                        // the real-world time spent paused.
+                        previousTime =
+                            Clock::now();
+
+                        redraw =
+                            true;
+
+                        break;
+                    }
+
+                    // --------------------------------------
+                    // Manual save
+                    // --------------------------------------
+
+                    case 's':
+                    {
+                        SaveManager::save(
+                            *simulation,
+                            options.savePath
+                        );
+
+                        lastMessage =
+                            "Saved to "
+                            +
+                            options.
+                                savePath.
+                                string();
+
+                        redraw =
+                            true;
+
+                        break;
+                    }
+
+                    // --------------------------------------
+                    // Save + quit
+                    // --------------------------------------
+
+                    case 'q':
+                    {
+                        SaveManager::save(
+                            *simulation,
+                            options.savePath
+                        );
+
+                        lastMessage =
+                            "Saved. Exiting.";
+
+                        running =
+                            false;
+
+                        break;
+                    }
+
+                    default:
+                        break;
+                }
+            }
+
+            if (!running)
+            {
+                break;
+            }
+
+            // ==============================================
+            // Simulation
+            // ==============================================
+
+            if (!paused)
+            {
+                const int ticksExecuted =
+                    simulation->advance(
                         elapsed
                     );
 
-            if (
-                ticksExecuted > 0
-            )
-            {
-                complete =
-                    !simulation->
-                        hasOutstandingWork();
+                if (
+                    ticksExecuted > 0
+                )
+                {
+                    redraw =
+                        true;
+                }
 
-                renderer.render(
-                    map,
-                    registry,
-                    buildHud(
-                        complete
-                    )
-                );
+                // ------------------------------------------
+                // Autosave
+                // ------------------------------------------
 
-                // Autosave every 25 simulation ticks.
                 if (
                     simulation->
                         time().tick
                     >=
-                    lastAutosaveTick + 25
+                    lastAutosaveTick +
+                        100
                 )
                 {
                     SaveManager::save(
@@ -828,11 +1383,20 @@ int main(
                     lastAutosaveTick =
                         simulation->
                             time().tick;
+
+                    lastMessage =
+                        "Autosaved.";
+
+                    redraw =
+                        true;
                 }
 
+                // ------------------------------------------
+                // Debug/testing stop-after
+                // ------------------------------------------
+
                 if (
-                    options.
-                        stopAfterTicks
+                    options.stopAfterTicks
                     &&
                     simulation->
                         time().tick
@@ -848,13 +1412,39 @@ int main(
                         options.savePath
                     );
 
-                    stoppedEarly =
-                        true;
+                    lastMessage =
+                        "Reached --stop-after limit.";
+
+                    running =
+                        false;
 
                     break;
                 }
             }
+            else
+            {
+                // While paused, continually reset the time
+                // origin so unpause does not cause massive
+                // fixed-step catch-up.
+                previousTime =
+                    Clock::now();
+            }
 
+            // ==============================================
+            // Render current Z slice
+            // ==============================================
+
+            if (redraw)
+            {
+                renderer.render(
+                    map,
+                    registry,
+                    viewZ,
+                    buildHud()
+                );
+            }
+
+            // Avoid busy-looping the CPU.
             std::this_thread::
                 sleep_for(
                     std::chrono::
@@ -864,29 +1454,41 @@ int main(
                 );
         }
 
-        // Always save final/current state.
-        SaveManager::save(
-            *simulation,
-            options.savePath
-        );
+        // ==================================================
+        // Graceful shutdown
+        // ==================================================
 
-        renderer.render(
-            map,
-            registry,
-            buildHud(
-                complete
-            )
-        );
+        if (interrupted)
+        {
+            lastMessage =
+                "Interrupt received. Saving...";
 
+            SaveManager::save(
+                *simulation,
+                options.savePath
+            );
+        }
+        else
+        {
+            // Safe final save even if q already saved.
+            SaveManager::save(
+                *simulation,
+                options.savePath
+            );
+        }
+
+        // Explicitly restore the normal terminal screen
+        // before printing ordinary shell output.
         renderer.finish();
 
-        if (stoppedEarly)
+        if (interrupted)
         {
             std::cout
-                << "Saved after "
-                << *options.
-                    stopAfterTicks
-                << " additional ticks.\n";
+                << "Interrupted. World saved to "
+                << options.
+                    savePath.
+                    string()
+                << '\n';
         }
         else
         {
@@ -904,6 +1506,9 @@ int main(
         const std::exception& error
     )
     {
+        // If an exception happens after TerminalRenderer
+        // has been constructed, its destructor still
+        // restores the alternate screen/cursor.
         std::cerr
             << "Fatal error: "
             << error.what()

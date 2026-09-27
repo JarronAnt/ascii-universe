@@ -1,6 +1,7 @@
 #include "ascii/TerminalRenderer.hpp"
 
 #include "ascii/Components.hpp"
+#include "ascii/Material.hpp"
 #include "ascii/Position.hpp"
 #include "ascii/Stockpiles.hpp"
 #include "ascii/Tile.hpp"
@@ -39,11 +40,21 @@ void TerminalRenderer::initializeScreen(
         }
     );
 
-    // Clear only when starting or when the frame
-    // dimensions have changed.
+    // Enter the terminal's alternate screen buffer.
+    //
+    // This keeps the game completely separate from the
+    // normal shell screen. When finish() is called, the
+    // original shell contents are restored.
     std::cout
+        << "\033[?1049h"
+
+        // Clear alternate screen.
         << "\033[2J"
+
+        // Move cursor to top-left.
         << "\033[H"
+
+        // Hide cursor.
         << "\033[?25l";
 
     std::cout.flush();
@@ -58,13 +69,18 @@ void TerminalRenderer::initializeScreen(
 void TerminalRenderer::render(
     const GameMap& map,
     entt::registry& registry,
+    int viewZ,
     const std::vector<std::string>&
         hudLines
 )
 {
-    // ==================================================
-    // Determine frame size
-    // ==================================================
+    if (
+        viewZ < 0 ||
+        viewZ >= map.depth()
+    )
+    {
+        return;
+    }
 
     std::size_t width =
         static_cast<std::size_t>(
@@ -83,7 +99,6 @@ void TerminalRenderer::render(
             );
     }
 
-    // Map + blank separator + HUD.
     const std::size_t height =
         static_cast<std::size_t>(
             map.height()
@@ -94,13 +109,16 @@ void TerminalRenderer::render(
         hudLines.size();
 
     if (
-        !initialized_
-        ||
-        frameWidth_ != width
-        ||
+        !initialized_ ||
+        frameWidth_ != width ||
         frameHeight_ != height
     )
     {
+        if (initialized_)
+        {
+            finish();
+        }
+
         initializeScreen(
             width,
             height
@@ -110,7 +128,8 @@ void TerminalRenderer::render(
     finished_ =
         false;
 
-    // Keep cursor hidden during gameplay.
+    // Keep the cursor hidden while the simulation
+    // is being rendered.
     std::cout
         << "\033[?25l";
 
@@ -132,8 +151,7 @@ void TerminalRenderer::render(
         )
         {
             if (
-                x >= width
-                ||
+                x >= width ||
                 y >= height
             )
             {
@@ -142,10 +160,11 @@ void TerminalRenderer::render(
 
             nextFrame[
                 y * width + x
-            ] = Cell{
-                character,
-                color
-            };
+            ] =
+                Cell{
+                    character,
+                    color
+                };
         };
 
     // ==================================================
@@ -164,50 +183,136 @@ void TerminalRenderer::render(
             ++x
         )
         {
-            switch (
+            const Tile& tile =
                 map.at(
                     x,
-                    y
-                ).type
+                    y,
+                    viewZ
+                );
+
+            char character =
+                ' ';
+
+            TerminalColor color =
+                materialColor(
+                    tile.material
+                );
+
+            // ------------------------------------------
+            // Water
+            // ------------------------------------------
+
+            if (
+                tile.liquid.type ==
+                    LiquidType::Water
+                &&
+                tile.liquid.depth > 0
             )
             {
-                case TileType::Floor:
-                    setCell(
-                        static_cast<
-                            std::size_t
-                        >(x),
-                        static_cast<
-                            std::size_t
-                        >(y),
-                        '.',
-                        TerminalColor::
-                            BrightBlack
+                // Show water depth directly.
+                //
+                // DF-style:
+                //
+                // 1 = shallow
+                // 7 = full
+                character =
+                    static_cast<char>(
+                        '0' +
+                        tile.liquid.depth
                     );
 
-                    break;
-
-                case TileType::Wall:
-                    setCell(
-                        static_cast<
-                            std::size_t
-                        >(x),
-                        static_cast<
-                            std::size_t
-                        >(y),
-                        '#',
-                        TerminalColor::
-                            BrightWhite
-                    );
-
-                    break;
+                color =
+                    tile.liquid.depth >= 5
+                    ?
+                    TerminalColor::BrightBlue
+                    :
+                    TerminalColor::Cyan;
             }
+
+            // ------------------------------------------
+            // Trees
+            // ------------------------------------------
+
+            else if (
+                tile.feature ==
+                    TileFeature::Tree
+            )
+            {
+                character =
+                    'T';
+
+                color =
+                    materialColor(
+                        tile.featureMaterial
+                    );
+            }
+
+            // ------------------------------------------
+            // Terrain geometry
+            // ------------------------------------------
+
+            else
+            {
+                switch (
+                    tile.shape
+                )
+                {
+                    case TileShape::Open:
+                        character =
+                            ' ';
+
+                        color =
+                            TerminalColor::Default;
+
+                        break;
+
+                    case TileShape::Floor:
+                        character =
+                            '.';
+                        break;
+
+                    case TileShape::Wall:
+                        character =
+                            '#';
+                        break;
+
+                    case TileShape::Ramp:
+                        character =
+                            '^';
+                        break;
+
+                    case TileShape::UpStair:
+                        character =
+                            '<';
+                        break;
+
+                    case TileShape::DownStair:
+                        character =
+                            '>';
+                        break;
+
+                    case TileShape::UpDownStair:
+                        character =
+                            'X';
+                        break;
+                }
+            }
+
+            setCell(
+                static_cast<std::size_t>(
+                    x
+                ),
+                static_cast<std::size_t>(
+                    y
+                ),
+                character,
+                color
+            );
         }
     }
 
     // ==================================================
     // Stockpiles
-    //
-    // Stockpile floor overlays normal floor.
     // ==================================================
 
     auto stockpileView =
@@ -232,17 +337,17 @@ void TerminalRenderer::render(
         stockpiles.begin(),
         stockpiles.end(),
         [](
-            entt::entity first,
-            entt::entity second
+            entt::entity lhs,
+            entt::entity rhs
         )
         {
             return
                 entt::to_integral(
-                    first
+                    lhs
                 )
                 <
                 entt::to_integral(
-                    second
+                    rhs
                 );
         }
     );
@@ -257,60 +362,81 @@ void TerminalRenderer::render(
                 Stockpile
             >(entity);
 
+        if (
+            viewZ <
+                stockpile.bounds.min.z
+            ||
+            viewZ >
+                stockpile.bounds.max.z
+        )
+        {
+            continue;
+        }
+
         for (
             int y =
-                stockpile.bounds.
-                    topLeft.y;
+                stockpile.bounds.min.y;
             y <=
-                stockpile.bounds.
-                    bottomRight.y;
+                stockpile.bounds.max.y;
             ++y
         )
         {
             for (
                 int x =
-                    stockpile.bounds.
-                        topLeft.x;
+                    stockpile.bounds.min.x;
                 x <=
-                    stockpile.bounds.
-                        bottomRight.x;
+                    stockpile.bounds.max.x;
                 ++x
             )
             {
+                const Position position{
+                    x,
+                    y,
+                    viewZ
+                };
+
                 if (
                     !map.inBounds(
-                        x,
-                        y
+                        position
                     )
+                )
+                {
+                    continue;
+                }
+
+                const Tile& tile =
+                    map.at(
+                        position
+                    );
+
+                if (
+                    !tile.baseWalkable()
                     ||
-                    !map.at(
-                        x,
-                        y
-                    ).walkable()
+                    tile.feature !=
+                        TileFeature::None
+                    ||
+                    tile.liquid.depth > 0
                 )
                 {
                     continue;
                 }
 
                 setCell(
-                    static_cast<
-                        std::size_t
-                    >(x),
-                    static_cast<
-                        std::size_t
-                    >(y),
+                    static_cast<std::size_t>(
+                        x
+                    ),
+                    static_cast<std::size_t>(
+                        y
+                    ),
                     '=',
-                    TerminalColor::
-                        BrightCyan
+                    TerminalColor::BrightCyan
                 );
             }
         }
     }
 
     // ==================================================
-    // Entities
-    //
-    // Entities overlay terrain and stockpiles.
+    // ECS entities
     // ==================================================
 
     auto entityView =
@@ -332,22 +458,21 @@ void TerminalRenderer::render(
         );
     }
 
-    // Keep overlay order deterministic.
     std::sort(
         entities.begin(),
         entities.end(),
         [](
-            entt::entity first,
-            entt::entity second
+            entt::entity lhs,
+            entt::entity rhs
         )
         {
             return
                 entt::to_integral(
-                    first
+                    lhs
                 )
                 <
                 entt::to_integral(
-                    second
+                    rhs
                 );
         }
     );
@@ -362,28 +487,35 @@ void TerminalRenderer::render(
                 Position
             >(entity);
 
-        const auto& glyph =
-            registry.get<
-                Glyph
-            >(entity);
+        if (
+            position.z !=
+                viewZ
+        )
+        {
+            continue;
+        }
 
         if (
             !map.inBounds(
-                position.x,
-                position.y
+                position
             )
         )
         {
             continue;
         }
 
+        const auto& glyph =
+            registry.get<
+                Glyph
+            >(entity);
+
         setCell(
-            static_cast<
-                std::size_t
-            >(position.x),
-            static_cast<
-                std::size_t
-            >(position.y),
+            static_cast<std::size_t>(
+                position.x
+            ),
+            static_cast<std::size_t>(
+                position.y
+            ),
             glyph.character,
             glyph.color
         );
@@ -423,14 +555,16 @@ void TerminalRenderer::render(
                 hudStart +
                     lineIndex,
                 line[x],
-                TerminalColor::
-                    BrightWhite
+                TerminalColor::BrightWhite
             );
         }
     }
 
     // ==================================================
-    // Dirty-cell render
+    // Dirty-cell renderer
+    //
+    // Only redraw characters that changed from the
+    // previous frame.
     // ==================================================
 
     std::ostringstream output;
@@ -454,10 +588,14 @@ void TerminalRenderer::render(
                 y * width + x;
 
             const Cell& next =
-                nextFrame[index];
+                nextFrame[
+                    index
+                ];
 
             const Cell& previous =
-                previousFrame_[index];
+                previousFrame_[
+                    index
+                ];
 
             if (
                 next == previous
@@ -466,7 +604,7 @@ void TerminalRenderer::render(
                 continue;
             }
 
-            // ANSI cursor position is 1-based.
+            // ANSI coordinates are 1-based.
             output
                 << "\033["
                 << (y + 1)
@@ -495,7 +633,7 @@ void TerminalRenderer::render(
         }
     }
 
-    // Don't leak our text color into the shell.
+    // Restore default terminal styling.
     output
         << "\033[0m";
 
@@ -512,21 +650,29 @@ void TerminalRenderer::render(
 
 void TerminalRenderer::finish()
 {
-    if (finished_)
+    if (
+        finished_
+    )
     {
         return;
     }
 
-    if (initialized_)
+    if (
+        initialized_
+    )
     {
-        // Put shell cursor below our rendered frame.
+        // Restore styles.
         std::cout
             << "\033[0m"
+
+            // Show cursor.
             << "\033[?25h"
-            << "\033["
-            << (frameHeight_ + 1)
-            << ";1H"
-            << '\n';
+
+            // Leave alternate screen buffer.
+            //
+            // This restores the terminal exactly as
+            // it looked before ASCII Universe started.
+            << "\033[?1049l";
     }
     else
     {
@@ -536,6 +682,9 @@ void TerminalRenderer::finish()
     }
 
     std::cout.flush();
+
+    initialized_ =
+        false;
 
     finished_ =
         true;

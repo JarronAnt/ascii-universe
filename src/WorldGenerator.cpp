@@ -1,11 +1,16 @@
 #include "ascii/WorldGenerator.hpp"
 
+#include "ascii/Material.hpp"
 #include "ascii/Random.hpp"
 #include "ascii/Tile.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace ascii
@@ -14,142 +19,174 @@ namespace ascii
 namespace
 {
 
-std::size_t index(
+std::size_t surfaceIndex(
     int x,
     int y,
     int width
 )
 {
-    return static_cast<
-        std::size_t
-    >(
-        y * width + x
-    );
+    return
+        static_cast<std::size_t>(
+            y * width + x
+        );
 }
 
-int surroundingWalls(
-    const std::vector<TileType>&
-        tiles,
-    int width,
-    int height,
-    int x,
-    int y
+MaterialType soilMaterial(
+    Random& random
 )
 {
-    int count =
-        0;
-
-    for (
-        int dy = -1;
-        dy <= 1;
-        ++dy
+    switch (
+        random.integer(
+            0,
+            2
+        )
     )
     {
-        for (
-            int dx = -1;
-            dx <= 1;
-            ++dx
-        )
-        {
-            if (
-                dx == 0
-                &&
-                dy == 0
-            )
-            {
-                continue;
-            }
+        case 0:
+            return MaterialType::Soil;
 
-            const int nx =
-                x + dx;
+        case 1:
+            return MaterialType::Clay;
 
-            const int ny =
-                y + dy;
-
-            if (
-                nx < 0
-                ||
-                ny < 0
-                ||
-                nx >= width
-                ||
-                ny >= height
-            )
-            {
-                ++count;
-                continue;
-            }
-
-            if (
-                tiles[
-                    index(
-                        nx,
-                        ny,
-                        width
-                    )
-                ]
-                ==
-                TileType::Wall
-            )
-            {
-                ++count;
-            }
-        }
+        default:
+            return MaterialType::Sand;
     }
-
-    return count;
 }
 
-void setTile(
+MaterialType baseMaterial(
+    int depthBelowSurface,
+    Random& random
+)
+{
+    // Top three underground levels are
+    // soil/sand/clay.
+    if (
+        depthBelowSurface <= 3
+    )
+    {
+        return soilMaterial(
+            random
+        );
+    }
+
+    // Sedimentary layer.
+    if (
+        depthBelowSurface <= 5
+    )
+    {
+        return
+            random.chance(0.55)
+            ?
+            MaterialType::Limestone
+            :
+            MaterialType::Sandstone;
+    }
+
+    switch (
+        random.integer(
+            0,
+            9
+        )
+    )
+    {
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+            return MaterialType::Granite;
+
+        case 4:
+        case 5:
+        case 6:
+            return MaterialType::Basalt;
+
+        case 7:
+        case 8:
+            return MaterialType::Marble;
+
+        default:
+            return MaterialType::Obsidian;
+    }
+}
+
+MaterialType randomVeinMaterial(
+    Random& random,
+    int z,
+    int depth
+)
+{
+    const bool deep =
+        z <
+        depth / 2;
+
+    const int roll =
+        random.integer(
+            0,
+            99
+        );
+
+    if (
+        deep &&
+        roll < 8
+    )
+    {
+        return MaterialType::GoldOre;
+    }
+
+    if (
+        deep &&
+        roll < 18
+    )
+    {
+        return MaterialType::SilverOre;
+    }
+
+    if (roll < 34)
+    {
+        return MaterialType::TinOre;
+    }
+
+    if (roll < 53)
+    {
+        return MaterialType::CopperOre;
+    }
+
+    if (roll < 74)
+    {
+        return MaterialType::IronOre;
+    }
+
+    if (roll < 89)
+    {
+        return MaterialType::Coal;
+    }
+
+    return MaterialType::Quartz;
+}
+
+void carveFloor(
     GameMap& map,
-    int x,
-    int y,
-    TileType type
+    Position position
 )
 {
     if (
-        map.inBounds(
-            x,
-            y
-        )
+        !map.inBounds(position)
     )
     {
-        map.at(
-            x,
-            y
-        ).type =
-            type;
+        return;
     }
-}
 
-void carveRectangle(
-    GameMap& map,
-    int left,
-    int top,
-    int right,
-    int bottom
-)
-{
-    for (
-        int y = top;
-        y <= bottom;
-        ++y
-    )
-    {
-        for (
-            int x = left;
-            x <= right;
-            ++x
-        )
-        {
-            setTile(
-                map,
-                x,
-                y,
-                TileType::Floor
-            );
-        }
-    }
+    Tile& tile =
+        map.at(position);
+
+    tile.shape =
+        TileShape::Floor;
+
+    tile.feature =
+        TileFeature::None;
+
+    tile.featureMaterial =
+        MaterialType::None;
 }
 
 }
@@ -161,43 +198,46 @@ WorldGenerator::generate(
     const WorldGenConfig& config
 )
 {
+    if (
+        map.width() < 50 ||
+        map.height() < 24 ||
+        map.depth() < 9
+    )
+    {
+        throw std::runtime_error(
+            "3D world requires at least 50x24x9."
+        );
+    }
+
+    Random random{
+        seed ^
+        0x73E2A91C6B4D580FULL
+    };
+
     const int width =
         map.width();
 
     const int height =
         map.height();
 
-    if (
-        width < 30
-        ||
-        height < 18
-    )
-    {
-        throw std::runtime_error(
-            "WorldGenerator requires at least "
-            "a 30x18 map."
-        );
-    }
+    const int depth =
+        map.depth();
 
-    // Separate world-generation stream.
-    //
-    // Runtime simulation randomness remains
-    // independent from terrain generation.
-    Random random{
-        seed ^
-        0xA57C9E3B4D128F61ULL
-    };
+    const int baseSurfaceZ =
+        depth - 3;
 
-    std::vector<TileType>
-        current(
-            static_cast<std::size_t>(
-                width * height
-            ),
-            TileType::Floor
-        );
+    const int centerY =
+        height / 2;
+
+    std::vector<int> surface(
+        static_cast<std::size_t>(
+            width * height
+        ),
+        baseSurfaceZ
+    );
 
     // ==================================================
-    // Initial random noise
+    // Random heightmap
     // ==================================================
 
     for (
@@ -212,55 +252,34 @@ WorldGenerator::generate(
             ++x
         )
         {
-            const bool border =
-                x == 0
-                ||
-                y == 0
-                ||
-                x == width - 1
-                ||
-                y == height - 1;
-
-            if (border)
-            {
-                current[
-                    index(
-                        x,
-                        y,
-                        width
-                    )
-                ] =
-                    TileType::Wall;
-
-                continue;
-            }
-
-            const int roll =
-                random.integer(
-                    0,
-                    99
-                );
-
-            current[
-                index(
+            surface[
+                surfaceIndex(
                     x,
                     y,
                     width
                 )
             ] =
-                roll <
-                    config.
-                        initialWallPercent
-                ?
-                TileType::Wall
-                :
-                TileType::Floor;
+                std::clamp(
+                    baseSurfaceZ +
+                    random.integer(
+                        -config.surfaceVariation,
+                        config.surfaceVariation
+                    ),
+                    3,
+                    depth - 2
+                );
         }
     }
 
-    // ==================================================
-    // Cellular automata smoothing
-    // ==================================================
+    constexpr std::array<
+        Position,
+        4
+    > cardinal{
+        Position{0, -1, 0},
+        Position{1, 0, 0},
+        Position{0, 1, 0},
+        Position{-1, 0, 0}
+    };
 
     for (
         int pass = 0;
@@ -269,9 +288,8 @@ WorldGenerator::generate(
         ++pass
     )
     {
-        std::vector<TileType>
-            next =
-                current;
+        auto next =
+            surface;
 
         for (
             int y = 1;
@@ -285,36 +303,81 @@ WorldGenerator::generate(
                 ++x
             )
             {
-                const int neighbors =
-                    surroundingWalls(
-                        current,
-                        width,
-                        height,
-                        x,
-                        y
-                    );
+                int total =
+                    surface[
+                        surfaceIndex(
+                            x,
+                            y,
+                            width
+                        )
+                    ];
+
+                int samples =
+                    1;
+
+                for (
+                    const auto direction :
+                    cardinal
+                )
+                {
+                    total +=
+                        surface[
+                            surfaceIndex(
+                                x +
+                                    direction.x,
+                                y +
+                                    direction.y,
+                                width
+                            )
+                        ];
+
+                    ++samples;
+                }
 
                 next[
-                    index(
+                    surfaceIndex(
                         x,
                         y,
                         width
                     )
                 ] =
-                    neighbors >= 5
-                    ?
-                    TileType::Wall
-                    :
-                    TileType::Floor;
+                    total /
+                    samples;
             }
         }
 
-        current =
+        surface =
             std::move(next);
     }
 
+    // Stable embark plateau.
+    for (
+        int y =
+            centerY - 6;
+        y <=
+            centerY + 6;
+        ++y
+    )
+    {
+        for (
+            int x = 1;
+            x <= 25;
+            ++x
+        )
+        {
+            surface[
+                surfaceIndex(
+                    x,
+                    y,
+                    width
+                )
+            ] =
+                baseSurfaceZ;
+        }
+    }
+
     // ==================================================
-    // Copy generated terrain into map
+    // Fill geological column
     // ==================================================
 
     for (
@@ -329,186 +392,770 @@ WorldGenerator::generate(
             ++x
         )
         {
-            map.at(
-                x,
-                y
-            ).type =
-                current[
-                    index(
+            const int surfaceZ =
+                surface[
+                    surfaceIndex(
                         x,
                         y,
                         width
                     )
                 ];
+
+            for (
+                int z = 0;
+                z < depth;
+                ++z
+            )
+            {
+                Tile& tile =
+                    map.at(
+                        x,
+                        y,
+                        z
+                    );
+
+                tile =
+                    Tile{};
+
+                if (
+                    z >
+                    surfaceZ
+                )
+                {
+                    tile.shape =
+                        TileShape::Open;
+
+                    tile.material =
+                        MaterialType::None;
+
+                    continue;
+                }
+
+                if (
+                    z ==
+                    surfaceZ
+                )
+                {
+                    tile.shape =
+                        TileShape::Floor;
+
+                    tile.material =
+                        MaterialType::Grass;
+
+                    continue;
+                }
+
+                tile.shape =
+                    TileShape::Wall;
+
+                tile.material =
+                    baseMaterial(
+                        surfaceZ - z,
+                        random
+                    );
+            }
         }
     }
 
     // ==================================================
-    // Guaranteed playable colony area
-    // ==================================================
-
-    const int centerY =
-        height / 2;
-
-    const int mineX =
-        width - 10;
-
-    // Starting room.
-    carveRectangle(
-        map,
-        2,
-        centerY - 4,
-        11,
-        centerY + 4
-    );
-
-    // Corridor toward mine.
-    carveRectangle(
-        map,
-        10,
-        centerY - 1,
-        mineX - 1,
-        centerY + 1
-    );
-
-    // Wider access along the mine face.
-    carveRectangle(
-        map,
-        mineX - 2,
-        centerY - 4,
-        mineX - 1,
-        centerY + 4
-    );
-
-    // ==================================================
-    // Guaranteed rock vein
+    // Mineral veins
     // ==================================================
 
     for (
-        int y = centerY - 4;
-        y <= centerY + 4;
+        int vein = 0;
+        vein <
+            config.veinCount;
+        ++vein
+    )
+    {
+        const int cx =
+            random.integer(
+                3,
+                width - 4
+            );
+
+        const int cy =
+            random.integer(
+                3,
+                height - 4
+            );
+
+        const int cz =
+            random.integer(
+                1,
+                std::max(
+                    1,
+                    baseSurfaceZ - 3
+                )
+            );
+
+        const int rx =
+            random.integer(
+                2,
+                5
+            );
+
+        const int ry =
+            random.integer(
+                1,
+                4
+            );
+
+        const int rz =
+            random.integer(
+                0,
+                1
+            );
+
+        const MaterialType material =
+            randomVeinMaterial(
+                random,
+                cz,
+                depth
+            );
+
+        for (
+            int z =
+                std::max(
+                    0,
+                    cz - rz
+                );
+            z <=
+                std::min(
+                    depth - 1,
+                    cz + rz
+                );
+            ++z
+        )
+        {
+            for (
+                int y =
+                    std::max(
+                        1,
+                        cy - ry
+                    );
+                y <=
+                    std::min(
+                        height - 2,
+                        cy + ry
+                    );
+                ++y
+            )
+            {
+                for (
+                    int x =
+                        std::max(
+                            1,
+                            cx - rx
+                        );
+                    x <=
+                        std::min(
+                            width - 2,
+                            cx + rx
+                        );
+                    ++x
+                )
+                {
+                    const int dx =
+                        x - cx;
+
+                    const int dy =
+                        y - cy;
+
+                    if (
+                        dx * dx *
+                            ry * ry
+                        +
+                        dy * dy *
+                            rx * rx
+                        >
+                        rx * rx *
+                            ry * ry
+                    )
+                    {
+                        continue;
+                    }
+
+                    Tile& tile =
+                        map.at(
+                            x,
+                            y,
+                            z
+                        );
+
+                    if (
+                        tile.shape !=
+                            TileShape::Wall ||
+                        isSoilMaterial(
+                            tile.material
+                        )
+                    )
+                    {
+                        continue;
+                    }
+
+                    tile.material =
+                        material;
+                }
+            }
+        }
+    }
+
+    // ==================================================
+    // Surface ramps
+    // ==================================================
+
+    for (
+        int y = 1;
+        y < height - 1;
         ++y
     )
     {
         for (
-            int x = mineX;
-            x <=
-                std::min(
-                    mineX + 4,
-                    width - 2
-                );
+            int x = 1;
+            x < width - 1;
             ++x
         )
         {
-            setTile(
+            const int z =
+                surface[
+                    surfaceIndex(
+                        x,
+                        y,
+                        width
+                    )
+                ];
+
+            for (
+                const auto direction :
+                cardinal
+            )
+            {
+                const int neighborZ =
+                    surface[
+                        surfaceIndex(
+                            x +
+                                direction.x,
+                            y +
+                                direction.y,
+                            width
+                        )
+                    ];
+
+                if (
+                    neighborZ ==
+                    z + 1
+                )
+                {
+                    map.at(
+                        x,
+                        y,
+                        z
+                    ).shape =
+                        TileShape::Ramp;
+
+                    break;
+                }
+            }
+        }
+    }
+
+    // ==================================================
+    // Underground test fortress
+    // ==================================================
+
+    const int undergroundZ =
+        baseSurfaceZ - 3;
+
+    for (
+        int y =
+            centerY - 4;
+        y <=
+            centerY + 4;
+        ++y
+    )
+    {
+        for (
+            int x = 8;
+            x <= 20;
+            ++x
+        )
+        {
+            carveFloor(
                 map,
-                x,
-                y,
-                TileType::Wall
+                Position{
+                    x,
+                    y,
+                    undergroundZ
+                }
             );
         }
     }
 
-    // Ensure outer boundary remains solid.
+    // Existing access shaft.
+    constexpr int StairX =
+        12;
+
+    const int stairY =
+        centerY;
+
     for (
-        int x = 0;
-        x < width;
-        ++x
+        int z =
+            undergroundZ;
+        z <=
+            baseSurfaceZ;
+        ++z
     )
     {
-        setTile(
-            map,
-            x,
-            0,
-            TileType::Wall
-        );
+        Tile& tile =
+            map.at(
+                StairX,
+                stairY,
+                z
+            );
 
-        setTile(
-            map,
-            x,
-            height - 1,
-            TileType::Wall
-        );
+        tile.feature =
+            TileFeature::None;
+
+        if (
+            z ==
+            undergroundZ
+        )
+        {
+            tile.shape =
+                TileShape::UpStair;
+        }
+        else if (
+            z ==
+            baseSurfaceZ
+        )
+        {
+            tile.shape =
+                TileShape::DownStair;
+        }
+        else
+        {
+            tile.shape =
+                TileShape::UpDownStair;
+        }
     }
 
+    // Guaranteed mining face.
+    const std::array<
+        MaterialType,
+        4
+    > guaranteed{
+        MaterialType::Granite,
+        MaterialType::IronOre,
+        MaterialType::CopperOre,
+        MaterialType::GoldOre
+    };
+
+    std::vector<Position>
+        miningTargets;
+
     for (
-        int y = 0;
-        y < height;
+        int i = 0;
+        i < 4;
+        ++i
+    )
+    {
+        const Position target{
+            21,
+            centerY - 2 + i,
+            undergroundZ
+        };
+
+        Tile& tile =
+            map.at(target);
+
+        tile.shape =
+            TileShape::Wall;
+
+        tile.material =
+            guaranteed[
+                static_cast<
+                    std::size_t
+                >(i)
+            ];
+
+        miningTargets.
+            push_back(
+                target
+            );
+    }
+
+    // ==================================================
+    // Trees
+    // ==================================================
+
+    for (
+        int y = 1;
+        y < height - 1;
         ++y
     )
     {
-        setTile(
-            map,
-            0,
-            y,
-            TileType::Wall
-        );
+        for (
+            int x = 1;
+            x < width - 1;
+            ++x
+        )
+        {
+            if (
+                x <= 25 &&
+                std::abs(
+                    y -
+                    centerY
+                ) <= 6
+            )
+            {
+                continue;
+            }
 
-        setTile(
-            map,
-            width - 1,
-            y,
-            TileType::Wall
+            const int z =
+                surface[
+                    surfaceIndex(
+                        x,
+                        y,
+                        width
+                    )
+                ];
+
+            Tile& tile =
+                map.at(
+                    x,
+                    y,
+                    z
+                );
+
+            if (
+                !tile.baseWalkable() ||
+                tile.liquid.depth > 0
+            )
+            {
+                continue;
+            }
+
+            if (
+                random.integer(
+                    0,
+                    99
+                )
+                <
+                config.treeChancePercent
+            )
+            {
+                tile.feature =
+                    TileFeature::Tree;
+
+                tile.featureMaterial =
+                    random.chance(
+                        0.55
+                    )
+                    ?
+                    MaterialType::OakWood
+                    :
+                    MaterialType::PineWood;
+            }
+        }
+    }
+
+    const std::array<
+        Position,
+        4
+    > guaranteedTrees{
+        Position{
+            20,
+            centerY - 5,
+            baseSurfaceZ
+        },
+        Position{
+            21,
+            centerY - 5,
+            baseSurfaceZ
+        },
+        Position{
+            22,
+            centerY - 5,
+            baseSurfaceZ
+        },
+        Position{
+            23,
+            centerY - 5,
+            baseSurfaceZ
+        }
+    };
+
+    for (
+        std::size_t i = 0;
+        i <
+            guaranteedTrees.size();
+        ++i
+    )
+    {
+        Tile& tile =
+            map.at(
+                guaranteedTrees[i]
+            );
+
+        tile.shape =
+            TileShape::Floor;
+
+        tile.material =
+            MaterialType::Grass;
+
+        tile.feature =
+            TileFeature::Tree;
+
+        tile.featureMaterial =
+            i % 2 == 0
+            ?
+            MaterialType::OakWood
+            :
+            MaterialType::PineWood;
+    }
+
+    // ==================================================
+    // Water source / pond
+    // ==================================================
+
+    Position highest{
+        width - 8,
+        4,
+        baseSurfaceZ
+    };
+
+    int highestZ =
+        -1;
+
+    for (
+        int y = 3;
+        y < height - 3;
+        ++y
+    )
+    {
+        for (
+            int x =
+                width / 2;
+            x < width - 3;
+            ++x
+        )
+        {
+            const int z =
+                surface[
+                    surfaceIndex(
+                        x,
+                        y,
+                        width
+                    )
+                ];
+
+            if (
+                z > highestZ
+            )
+            {
+                highestZ =
+                    z;
+
+                highest =
+                    Position{
+                        x,
+                        y,
+                        z
+                    };
+            }
+        }
+    }
+
+    const auto addWater =
+        [&](
+            Position position,
+            std::uint8_t amount
+        )
+        {
+            if (
+                !map.inBounds(
+                    position
+                )
+            )
+            {
+                return;
+            }
+
+            Tile& tile =
+                map.at(
+                    position
+                );
+
+            if (
+                !tile.baseWalkable()
+            )
+            {
+                return;
+            }
+
+            tile.feature =
+                TileFeature::None;
+
+            tile.featureMaterial =
+                MaterialType::None;
+
+            tile.liquid.type =
+                LiquidType::Water;
+
+            tile.liquid.depth =
+                amount;
+        };
+
+    addWater(
+        highest,
+        7
+    );
+
+    for (
+        const auto direction :
+        cardinal
+    )
+    {
+        const int nx =
+            highest.x +
+            direction.x;
+
+        const int ny =
+            highest.y +
+            direction.y;
+
+        if (
+            nx <= 0 ||
+            ny <= 0 ||
+            nx >= width - 1 ||
+            ny >= height - 1
+        )
+        {
+            continue;
+        }
+
+        addWater(
+            Position{
+                nx,
+                ny,
+                surface[
+                    surfaceIndex(
+                        nx,
+                        ny,
+                        width
+                    )
+                ]
+            },
+            5
         );
     }
 
     // ==================================================
-    // Layout metadata
+    // Layout
     // ==================================================
 
     GeneratedWorldLayout result;
 
+    result.defaultViewZ =
+        baseSurfaceZ;
+
     result.minerSpawn =
         Position{
-            5,
-            centerY
+            12,
+            centerY + 1,
+            undergroundZ
         };
 
     result.haulerSpawn =
         Position{
             5,
-            centerY + 2
+            centerY + 2,
+            baseSurfaceZ
         };
 
-    result.stockpileTopLeft =
+    result.woodcutterSpawn =
+        Position{
+            5,
+            centerY - 2,
+            baseSurfaceZ
+        };
+
+    result.stockpileMin =
         Position{
             3,
-            centerY - 3
+            centerY - 5,
+            baseSurfaceZ
         };
 
-    result.stockpileBottomRight =
+    result.stockpileMax =
         Position{
             9,
-            centerY - 1
+            centerY - 3,
+            baseSurfaceZ
         };
 
-    result.miningTargets = {
-        Position{
-            mineX,
-            centerY - 2
-        },
-        Position{
-            mineX,
-            centerY - 1
-        },
-        Position{
-            mineX,
-            centerY
-        },
-        Position{
-            mineX,
-            centerY + 1
-        }
-    };
+    for (
+        int y =
+            result.stockpileMin.y;
+        y <=
+            result.stockpileMax.y;
+        ++y
+    )
+    {
+        for (
+            int x =
+                result.stockpileMin.x;
+            x <=
+                result.stockpileMax.x;
+            ++x
+        )
+        {
+            Tile& tile =
+                map.at(
+                    x,
+                    y,
+                    baseSurfaceZ
+                );
 
-    // Stockpile must be floor.
-    carveRectangle(
-        map,
-        result.stockpileTopLeft.x,
-        result.stockpileTopLeft.y,
-        result.stockpileBottomRight.x,
-        result.stockpileBottomRight.y
+            tile.shape =
+                TileShape::Floor;
+
+            tile.material =
+                MaterialType::Grass;
+
+            tile.feature =
+                TileFeature::None;
+
+            tile.featureMaterial =
+                MaterialType::None;
+        }
+    }
+
+    result.miningTargets =
+        std::move(
+            miningTargets
+        );
+
+    result.treeTargets.assign(
+        guaranteedTrees.begin(),
+        guaranteedTrees.end()
     );
+
+    // Test vertical excavation jobs.
+    result.digDownTarget =
+        Position{
+            15,
+            centerY + 2,
+            undergroundZ
+        };
+
+    result.digUpTarget =
+        Position{
+            17,
+            centerY - 2,
+            undergroundZ
+        };
 
     return result;
 }

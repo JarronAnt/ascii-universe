@@ -15,7 +15,7 @@ struct WorldGenConfig
 
     int smoothingPasses{4};
 
-    int veinCount{22};
+    int veinCount{24};
 
     int treeChancePercent{16};
 };

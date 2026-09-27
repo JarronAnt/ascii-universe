@@ -13,7 +13,7 @@ class SaveManager
 public:
     static constexpr int
         CurrentVersion =
-            1;
+            2;
 
     static void save(
         const Simulation& simulation,

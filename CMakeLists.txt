@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     ascii_universe
-    VERSION 0.1.0
+    VERSION 0.2.0
     LANGUAGES CXX
 )
 
@@ -12,10 +12,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 
-# ==================================================
-# EnTT
-# ==================================================
-
 FetchContent_Declare(
     EnTT
     GIT_REPOSITORY https://github.com/skypjack/entt.git
@@ -23,10 +19,6 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(EnTT)
-
-# ==================================================
-# nlohmann/json
-# ==================================================
 
 FetchContent_Declare(
     json
@@ -36,10 +28,6 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(json)
 
-# ==================================================
-# Executable
-# ==================================================
-
 add_executable(
     ascii_universe
 
@@ -47,13 +35,18 @@ add_executable(
 
     src/Simulation.cpp
     src/TerminalRenderer.cpp
+    src/TerminalInput.cpp
     src/WorldGenerator.cpp
     src/SaveManager.cpp
 
     src/systems/DesignationSystems.cpp
     src/systems/MovementSystem.cpp
-    src/systems/MiningSystems.cpp
-    src/systems/LogisticsSystems.cpp
+    src/systems/ExcavationSystems.cpp
+    src/systems/FellingSystems.cpp
+    src/systems/StockpileSystems.cpp
+    src/systems/ItemSystems.cpp
+    src/systems/HaulingSystems.cpp
+    src/systems/WaterSystem.cpp
 )
 
 target_include_directories(

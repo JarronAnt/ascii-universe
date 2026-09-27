@@ -23,7 +23,10 @@ void updateMovement(
     std::vector<entt::entity>
         entities;
 
-    for (auto entity : view)
+    for (
+        auto entity :
+        view
+    )
     {
         entities.push_back(
             entity
@@ -34,7 +37,10 @@ void updateMovement(
         entities
     );
 
-    for (auto entity : entities)
+    for (
+        auto entity :
+        entities
+    )
     {
         auto& position =
             registry.get<
@@ -59,18 +65,13 @@ void updateMovement(
             ];
 
         if (
-            !map.inBounds(
-                next.x,
-                next.y
-            )
+            !map.inBounds(next)
             ||
             !map.at(
-                next.x,
-                next.y
+                next
             ).walkable()
         )
         {
-            // Path became invalid.
             path.nextStep =
                 path.nodes.size();
 

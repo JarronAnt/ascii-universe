@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Color.hpp"
 #include "Designations.hpp"
 #include "Events.hpp"
 #include "GameMap.hpp"
@@ -82,57 +83,43 @@ public:
     );
 
     GameMap& map();
+    const GameMap& map() const;
 
-    const GameMap&
-        map() const;
-
-    entt::registry&
-        registry();
-
+    entt::registry& registry();
     const entt::registry&
         registry() const;
 
     Random& random();
-
-    const Random&
-        random() const;
+    const Random& random() const;
 
     JobBoard& jobBoard();
-
-    const JobBoard&
-        jobBoard() const;
+    const JobBoard& jobBoard() const;
 
     [[nodiscard]]
-    const SimulationTime&
-        time() const;
+    const SimulationTime& time() const;
 
     [[nodiscard]]
     bool hasOutstandingWork();
 
 private:
-    entt::entity
-    createDesignation(
+    entt::entity createDesignation(
         Position position,
         DesignationType type,
-        char glyphCharacter,
+        char character,
         TerminalColor color
     );
 
     GameMap map_;
 
-    entt::registry
-        registry_;
+    entt::registry registry_;
 
     Random random_;
 
-    std::uint64_t
-        worldSeed_{};
+    std::uint64_t worldSeed_{};
 
-    Pathfinder
-        pathfinder_;
+    Pathfinder pathfinder_;
 
-    JobBoard
-        jobBoard_;
+    JobBoard jobBoard_;
 
     EventQueue<ItemSpawnEvent>
         itemSpawnEvents_;
@@ -143,8 +130,7 @@ private:
     EventQueue<ItemDropEvent>
         itemDropEvents_;
 
-    SimulationTime
-        time_;
+    SimulationTime time_;
 
     std::chrono::nanoseconds
         accumulator_{0};

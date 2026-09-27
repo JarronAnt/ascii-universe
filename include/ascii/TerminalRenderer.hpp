@@ -31,12 +31,11 @@ public:
     void render(
         const GameMap& map,
         entt::registry& registry,
+        int viewZ,
         const std::vector<std::string>&
             hudLines = {}
     );
 
-    // Restore terminal state and leave the cursor
-    // beneath the rendered game.
     void finish();
 
 private:

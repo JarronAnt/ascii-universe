@@ -1,15 +1,16 @@
 #include "ascii/Simulation.hpp"
 
-#include "ascii/Color.hpp"
 #include "ascii/Components.hpp"
-#include "ascii/Designations.hpp"
 #include "ascii/Stockpiles.hpp"
 #include "ascii/Tile.hpp"
 
 #include "ascii/systems/DesignationSystems.hpp"
-#include "ascii/systems/LogisticsSystems.hpp"
-#include "ascii/systems/MiningSystems.hpp"
+#include "ascii/systems/ExcavationSystems.hpp"
+#include "ascii/systems/FellingSystems.hpp"
+#include "ascii/systems/HaulingSystems.hpp"
+#include "ascii/systems/ItemSystems.hpp"
 #include "ascii/systems/MovementSystem.hpp"
+#include "ascii/systems/WaterSystem.hpp"
 
 #include <utility>
 
@@ -19,11 +20,13 @@ namespace ascii
 Simulation::Simulation(
     int width,
     int height,
+    int depth,
     std::uint64_t seed
 )
     : map_(
         width,
-        height
+        height,
+        depth
       ),
       random_(seed),
       worldSeed_(seed)
@@ -31,20 +34,19 @@ Simulation::Simulation(
 }
 
 int Simulation::advance(
-    std::chrono::nanoseconds elapsed
+    std::chrono::nanoseconds
+        elapsed
 )
 {
     if (
         elapsed <=
-        std::chrono::
-            nanoseconds::zero()
+        std::chrono::nanoseconds::zero()
     )
     {
         return 0;
     }
 
-    accumulator_ +=
-        elapsed;
+    accumulator_ += elapsed;
 
     int ticksExecuted =
         0;
@@ -67,10 +69,6 @@ int Simulation::advance(
 
 void Simulation::step()
 {
-    // ==================================================
-    // Player intent
-    // ==================================================
-
     systems::
         deduplicateDesignations(
             registry_
@@ -91,12 +89,16 @@ void Simulation::step()
             jobBoard_
         );
 
-    // ==================================================
-    // Job assignment
-    // ==================================================
+    systems::
+        assignExcavationJobs(
+            registry_,
+            map_,
+            pathfinder_,
+            jobBoard_
+        );
 
     systems::
-        assignMiningJobs(
+        assignFellingJobs(
             registry_,
             map_,
             pathfinder_,
@@ -111,22 +113,22 @@ void Simulation::step()
             jobBoard_
         );
 
-    // ==================================================
-    // Movement
-    // ==================================================
-
     systems::
         updateMovement(
             registry_,
             map_
         );
 
-    // ==================================================
-    // Work
-    // ==================================================
+    systems::
+        executeExcavation(
+            registry_,
+            map_,
+            jobBoard_,
+            itemSpawnEvents_
+        );
 
     systems::
-        executeMining(
+        executeFelling(
             registry_,
             map_,
             jobBoard_,
@@ -142,10 +144,6 @@ void Simulation::step()
             itemPickupEvents_,
             itemDropEvents_
         );
-
-    // ==================================================
-    // Events
-    // ==================================================
 
     systems::
         processItemSpawns(
@@ -177,30 +175,31 @@ void Simulation::step()
             jobBoard_
         );
 
+    // Water doesn't need to update as frequently
+    // as worker AI.
+    if (
+        time_.tick % 2 == 0
+    )
+    {
+        systems::
+            updateWater(
+                map_
+            );
+    }
+
     ++time_.tick;
 }
 
 entt::entity
-Simulation::designateMine(
-    Position position
+Simulation::createDesignation(
+    Position position,
+    DesignationType type,
+    char character,
+    TerminalColor color
 )
 {
     if (
-        !map_.inBounds(
-            position.x,
-            position.y
-        )
-    )
-    {
-        return entt::null;
-    }
-
-    if (
-        map_.at(
-            position.x,
-            position.y
-        ).type !=
-            TileType::Wall
+        !map_.inBounds(position)
     )
     {
         return entt::null;
@@ -210,19 +209,17 @@ Simulation::designateMine(
         registry_.create();
 
     registry_.emplace<
-        MineDesignation
-    >(entity);
+        Designation
+    >(entity).type =
+        type;
 
     registry_.emplace<
         DesignationLifecycle
     >(entity);
 
-    auto& entityPosition =
-        registry_.emplace<
-            Position
-        >(entity);
-
-    entityPosition =
+    registry_.emplace<
+        Position
+    >(entity) =
         position;
 
     auto& glyph =
@@ -231,43 +228,145 @@ Simulation::designateMine(
         >(entity);
 
     glyph.character =
-        'X';
+        character;
 
     glyph.color =
-        TerminalColor::BrightRed;
+        color;
 
     return entity;
 }
 
 entt::entity
-Simulation::createStockpile(
-    Position topLeft,
-    Position bottomRight,
-    std::vector<ItemType>
-        accepts
+Simulation::designateMine(
+    Position position
 )
 {
     if (
-        topLeft.x >
-            bottomRight.x
-        ||
-        topLeft.y >
-            bottomRight.y
+        !map_.inBounds(position) ||
+        map_.at(position).shape !=
+            TileShape::Wall
     )
     {
         return entt::null;
     }
 
+    return createDesignation(
+        position,
+        DesignationType::Mine,
+        'X',
+        TerminalColor::BrightRed
+    );
+}
+
+entt::entity
+Simulation::designateDigDown(
+    Position position
+)
+{
     if (
-        !map_.inBounds(
-            topLeft.x,
-            topLeft.y
-        )
-        ||
-        !map_.inBounds(
-            bottomRight.x,
-            bottomRight.y
-        )
+        !map_.inBounds(position) ||
+        !map_.at(position).walkable() ||
+        position.z <= 0
+    )
+    {
+        return entt::null;
+    }
+
+    const Position below{
+        position.x,
+        position.y,
+        position.z - 1
+    };
+
+    if (
+        map_.at(below).shape !=
+        TileShape::Wall
+    )
+    {
+        return entt::null;
+    }
+
+    return createDesignation(
+        position,
+        DesignationType::DigDown,
+        'v',
+        TerminalColor::BrightMagenta
+    );
+}
+
+entt::entity
+Simulation::designateDigUp(
+    Position position
+)
+{
+    if (
+        !map_.inBounds(position) ||
+        !map_.at(position).walkable() ||
+        position.z >=
+            map_.depth() - 1
+    )
+    {
+        return entt::null;
+    }
+
+    const Position above{
+        position.x,
+        position.y,
+        position.z + 1
+    };
+
+    if (
+        map_.at(above).shape !=
+        TileShape::Wall
+    )
+    {
+        return entt::null;
+    }
+
+    return createDesignation(
+        position,
+        DesignationType::DigUp,
+        '^',
+        TerminalColor::BrightMagenta
+    );
+}
+
+entt::entity
+Simulation::designateFellTree(
+    Position position
+)
+{
+    if (
+        !map_.inBounds(position) ||
+        map_.at(position).feature !=
+            TileFeature::Tree
+    )
+    {
+        return entt::null;
+    }
+
+    return createDesignation(
+        position,
+        DesignationType::FellTree,
+        'F',
+        TerminalColor::BrightYellow
+    );
+}
+
+entt::entity
+Simulation::createStockpile(
+    Position min,
+    Position max,
+    std::vector<ItemType>
+        accepts
+)
+{
+    if (
+        min.x > max.x ||
+        min.y > max.y ||
+        min.z > max.z ||
+        !map_.inBounds(min) ||
+        !map_.inBounds(max)
     )
     {
         return entt::null;
@@ -281,11 +380,11 @@ Simulation::createStockpile(
             Stockpile
         >(entity);
 
-    stockpile.bounds.topLeft =
-        topLeft;
+    stockpile.bounds.min =
+        min;
 
-    stockpile.bounds.bottomRight =
-        bottomRight;
+    stockpile.bounds.max =
+        max;
 
     stockpile.accepts =
         std::move(accepts);
@@ -315,7 +414,8 @@ void Simulation::restoreRuntimeState(
         std::chrono::nanoseconds{0};
 }
 
-GameMap& Simulation::map()
+GameMap&
+Simulation::map()
 {
     return map_;
 }
@@ -338,7 +438,8 @@ Simulation::registry() const
     return registry_;
 }
 
-Random& Simulation::random()
+Random&
+Simulation::random()
 {
     return random_;
 }
@@ -370,18 +471,15 @@ Simulation::time() const
 bool Simulation::hasOutstandingWork()
 {
     if (
-        jobBoard_.
-            hasUnfinished()
+        jobBoard_.hasUnfinished()
     )
     {
         return true;
     }
 
     if (
-        !itemSpawnEvents_.empty()
-        ||
-        !itemPickupEvents_.empty()
-        ||
+        !itemSpawnEvents_.empty() ||
+        !itemPickupEvents_.empty() ||
         !itemDropEvents_.empty()
     )
     {
@@ -390,20 +488,17 @@ bool Simulation::hasOutstandingWork()
 
     auto view =
         registry_.view<
-            MineDesignation,
+            Designation,
             DesignationLifecycle
         >();
 
     for (auto entity : view)
     {
-        const auto& lifecycle =
+        if (
             view.get<
                 DesignationLifecycle
-            >(entity);
-
-        if (
-            lifecycle.state ==
-                DesignationState::Active
+            >(entity).state ==
+            DesignationState::Active
         )
         {
             return true;

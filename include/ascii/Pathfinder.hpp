@@ -20,9 +20,7 @@ class Pathfinder
 {
 public:
     [[nodiscard]]
-    std::optional<
-        std::vector<Position>
-    >
+    std::optional<std::vector<Position>>
     findPath(
         const GameMap& map,
         Position start,
@@ -30,8 +28,7 @@ public:
     ) const
     {
         if (
-            !map.inBounds(start)
-            ||
+            !map.inBounds(start) ||
             !map.inBounds(goal)
         )
         {
@@ -39,53 +36,38 @@ public:
         }
 
         if (
-            !map.at(start).walkable()
-            ||
+            !map.at(start).walkable() ||
             !map.at(goal).walkable()
         )
         {
             return std::nullopt;
         }
 
-        if (
-            start == goal
-        )
+        if (start == goal)
         {
-            return
-                std::vector<Position>{};
+            return std::vector<Position>{};
         }
 
-        const std::size_t size =
-            map.cellCount();
-
         constexpr int Infinite =
-            std::numeric_limits<
-                int
-            >::max();
+            std::numeric_limits<int>::max();
 
-        constexpr std::size_t
-            NoParent =
-                std::numeric_limits<
-                    std::size_t
-                >::max();
+        constexpr std::size_t NoParent =
+            std::numeric_limits<std::size_t>::max();
 
-        std::vector<int>
-            gScore(
-                size,
-                Infinite
-            );
+        std::vector<int> gScore(
+            map.cellCount(),
+            Infinite
+        );
 
-        std::vector<std::size_t>
-            cameFrom(
-                size,
-                NoParent
-            );
+        std::vector<std::size_t> cameFrom(
+            map.cellCount(),
+            NoParent
+        );
 
-        std::vector<std::uint8_t>
-            closed(
-                size,
-                0
-            );
+        std::vector<std::uint8_t> closed(
+            map.cellCount(),
+            0
+        );
 
         std::priority_queue<
             OpenNode,
@@ -111,7 +93,7 @@ public:
         std::uint64_t order =
             0;
 
-        const int startH =
+        const int h =
             heuristic(
                 start,
                 goal
@@ -121,11 +103,19 @@ public:
             OpenNode{
                 start,
                 0,
-                startH,
-                startH,
+                h,
+                h,
                 order++
             }
         );
+
+        constexpr std::array<Position, 4>
+            directions{
+                Position{0, -1, 0},
+                Position{1, 0, 0},
+                Position{0, 1, 0},
+                Position{-1, 0, 0}
+            };
 
         while (!open.empty())
         {
@@ -141,20 +131,15 @@ public:
                 );
 
             if (
-                current.g !=
-                gScore[currentIndex]
-                ||
-                closed[
-                    currentIndex
-                ]
+                current.g != gScore[currentIndex] ||
+                closed[currentIndex]
             )
             {
                 continue;
             }
 
             if (
-                current.position ==
-                goal
+                current.position == goal
             )
             {
                 return reconstruct(
@@ -174,13 +159,8 @@ public:
                 )
                 {
                     if (
-                        !map.inBounds(
-                            neighbor
-                        )
-                        ||
-                        !map.at(
-                            neighbor
-                        ).walkable()
+                        !map.inBounds(neighbor) ||
+                        !map.at(neighbor).walkable()
                     )
                     {
                         return;
@@ -192,39 +172,29 @@ public:
                             map
                         );
 
-                    if (
-                        closed[
-                            neighborIndex
-                        ]
-                    )
+                    if (closed[neighborIndex])
                     {
                         return;
                     }
 
-                    const int tentativeG =
+                    const int tentative =
                         current.g + 1;
 
                     if (
-                        tentativeG >=
-                        gScore[
-                            neighborIndex
-                        ]
+                        tentative >=
+                        gScore[neighborIndex]
                     )
                     {
                         return;
                     }
 
-                    cameFrom[
-                        neighborIndex
-                    ] =
+                    cameFrom[neighborIndex] =
                         currentIndex;
 
-                    gScore[
-                        neighborIndex
-                    ] =
-                        tentativeG;
+                    gScore[neighborIndex] =
+                        tentative;
 
-                    const int h =
+                    const int neighborH =
                         heuristic(
                             neighbor,
                             goal
@@ -233,28 +203,16 @@ public:
                     open.push(
                         OpenNode{
                             neighbor,
-                            tentativeG,
-                            h,
-                            tentativeG + h,
+                            tentative,
+                            neighborH,
+                            tentative +
+                                neighborH,
                             order++
                         }
                     );
                 };
 
-            // ==========================================
-            // Same Z
-            // ==========================================
-
-            constexpr std::array<
-                Position,
-                4
-            > directions{
-                Position{0, -1, 0},
-                Position{1, 0, 0},
-                Position{0, 1, 0},
-                Position{-1, 0, 0}
-            };
-
+            // Same Z-level.
             for (
                 const auto direction :
                 directions
@@ -262,12 +220,10 @@ public:
             {
                 tryNeighbor(
                     Position{
-                        current.position.x
-                            + direction.x,
-
-                        current.position.y
-                            + direction.y,
-
+                        current.position.x +
+                            direction.x,
+                        current.position.y +
+                            direction.y,
                         current.position.z
                     }
                 );
@@ -278,13 +234,9 @@ public:
                     current.position
                 );
 
-            // ==========================================
-            // Stairs
-            // ==========================================
-
+            // Stairs up.
             if (
-                currentTile.
-                    hasUpConnection()
+                currentTile.hasUpConnection()
             )
             {
                 const Position above{
@@ -294,22 +246,18 @@ public:
                 };
 
                 if (
-                    map.inBounds(above)
-                    &&
-                    map.at(
-                        above
-                    ).hasDownConnection()
+                    map.inBounds(above) &&
+                    map.at(above).
+                        hasDownConnection()
                 )
                 {
-                    tryNeighbor(
-                        above
-                    );
+                    tryNeighbor(above);
                 }
             }
 
+            // Stairs down.
             if (
-                currentTile.
-                    hasDownConnection()
+                currentTile.hasDownConnection()
             )
             {
                 const Position below{
@@ -319,26 +267,19 @@ public:
                 };
 
                 if (
-                    map.inBounds(below)
-                    &&
-                    map.at(
-                        below
-                    ).hasUpConnection()
+                    map.inBounds(below) &&
+                    map.at(below).
+                        hasUpConnection()
                 )
                 {
-                    tryNeighbor(
-                        below
-                    );
+                    tryNeighbor(below);
                 }
             }
 
-            // ==========================================
-            // Ramps
-            // ==========================================
-
+            // Ramp upward.
             if (
                 currentTile.shape ==
-                    TileShape::Ramp
+                TileShape::Ramp
             )
             {
                 for (
@@ -348,46 +289,42 @@ public:
                 {
                     tryNeighbor(
                         Position{
-                            current.position.x
-                                + direction.x,
-
-                            current.position.y
-                                + direction.y,
-
+                            current.position.x +
+                                direction.x,
+                            current.position.y +
+                                direction.y,
                             current.position.z + 1
                         }
                     );
                 }
             }
 
-            // Descend onto a lower ramp.
-            for (
-                const auto direction :
-                directions
+            // Step downward onto a lower ramp.
+            if (
+                current.position.z > 0
             )
             {
-                const Position lower{
-                    current.position.x
-                        + direction.x,
-
-                    current.position.y
-                        + direction.y,
-
-                    current.position.z - 1
-                };
-
-                if (
-                    map.inBounds(lower)
-                    &&
-                    map.at(
-                        lower
-                    ).shape ==
-                        TileShape::Ramp
+                for (
+                    const auto direction :
+                    directions
                 )
                 {
-                    tryNeighbor(
-                        lower
-                    );
+                    const Position lower{
+                        current.position.x +
+                            direction.x,
+                        current.position.y +
+                            direction.y,
+                        current.position.z - 1
+                    };
+
+                    if (
+                        map.inBounds(lower) &&
+                        map.at(lower).shape ==
+                            TileShape::Ramp
+                    )
+                    {
+                        tryNeighbor(lower);
+                    }
                 }
             }
         }
@@ -414,25 +351,17 @@ private:
             const OpenNode& rhs
         ) const
         {
-            if (
-                lhs.f != rhs.f
-            )
+            if (lhs.f != rhs.f)
             {
-                return
-                    lhs.f > rhs.f;
+                return lhs.f > rhs.f;
             }
 
-            if (
-                lhs.h != rhs.h
-            )
+            if (lhs.h != rhs.h)
             {
-                return
-                    lhs.h > rhs.h;
+                return lhs.h > rhs.h;
             }
 
-            return
-                lhs.order >
-                rhs.order;
+            return lhs.order > rhs.order;
         }
     };
 
@@ -443,17 +372,9 @@ private:
     )
     {
         return
-            std::abs(
-                a.x - b.x
-            )
-            +
-            std::abs(
-                a.y - b.y
-            )
-            +
-            std::abs(
-                a.z - b.z
-            );
+            std::abs(a.x - b.x) +
+            std::abs(a.y - b.y) +
+            std::abs(a.z - b.z);
     }
 
     [[nodiscard]]
@@ -463,45 +384,43 @@ private:
     )
     {
         return
-            static_cast<
-                std::size_t
-            >(
-                (
+            (
+                static_cast<std::size_t>(
                     position.z
-                    *
+                ) *
+                static_cast<std::size_t>(
                     map.height()
-                    +
+                ) +
+                static_cast<std::size_t>(
                     position.y
                 )
-                *
+            ) *
+            static_cast<std::size_t>(
                 map.width()
-                +
+            ) +
+            static_cast<std::size_t>(
                 position.x
             );
     }
 
     [[nodiscard]]
-    static Position
-    positionFromIndex(
+    static Position positionFromIndex(
         std::size_t value,
         const GameMap& map
     )
     {
-        const std::size_t
-            width =
-                static_cast<
-                    std::size_t
-                >(map.width());
+        const std::size_t width =
+            static_cast<std::size_t>(
+                map.width()
+            );
 
-        const std::size_t
-            height =
-                static_cast<
-                    std::size_t
-                >(map.height());
+        const std::size_t height =
+            static_cast<std::size_t>(
+                map.height()
+            );
 
-        const std::size_t
-            layerSize =
-                width * height;
+        const std::size_t layerSize =
+            width * height;
 
         const int z =
             static_cast<int>(
@@ -509,19 +428,19 @@ private:
                 layerSize
             );
 
-        const auto withinLayer =
+        const std::size_t within =
             value %
             layerSize;
 
         const int y =
             static_cast<int>(
-                withinLayer /
+                within /
                 width
             );
 
         const int x =
             static_cast<int>(
-                withinLayer %
+                within %
                 width
             );
 
@@ -537,22 +456,17 @@ private:
         std::vector<Position>
     >
     reconstruct(
-        const std::vector<
-            std::size_t
-        >& cameFrom,
+        const std::vector<std::size_t>&
+            cameFrom,
         std::size_t startIndex,
         std::size_t goalIndex,
         const GameMap& map
     )
     {
-        constexpr std::size_t
-            NoParent =
-                std::numeric_limits<
-                    std::size_t
-                >::max();
+        constexpr std::size_t NoParent =
+            std::numeric_limits<std::size_t>::max();
 
-        std::vector<Position>
-            path;
+        std::vector<Position> path;
 
         std::size_t current =
             goalIndex;
@@ -570,13 +484,10 @@ private:
             );
 
             current =
-                cameFrom[
-                    current
-                ];
+                cameFrom[current];
 
             if (
-                current ==
-                NoParent
+                current == NoParent
             )
             {
                 return std::nullopt;

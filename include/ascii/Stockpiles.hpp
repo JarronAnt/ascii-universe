@@ -24,16 +24,11 @@ struct StockpileBounds
     ) const
     {
         return
-            position.x >= min.x
-            &&
-            position.y >= min.y
-            &&
-            position.z >= min.z
-            &&
-            position.x <= max.x
-            &&
-            position.y <= max.y
-            &&
+            position.x >= min.x &&
+            position.y >= min.y &&
+            position.z >= min.z &&
+            position.x <= max.x &&
+            position.y <= max.y &&
             position.z <= max.z;
     }
 };
@@ -42,8 +37,7 @@ struct Stockpile
 {
     StockpileBounds bounds{};
 
-    std::vector<ItemType>
-        accepts;
+    std::vector<ItemType> accepts;
 
     std::vector<entt::entity>
         currentItems;
@@ -64,9 +58,7 @@ struct Stockpile
                 accepts.begin(),
                 accepts.end(),
                 type
-            )
-            !=
-            accepts.end();
+            ) != accepts.end();
     }
 
     [[nodiscard]]
@@ -78,8 +70,7 @@ struct Stockpile
         }
 
         return
-            currentItems.size()
-            +
+            currentItems.size() +
             reservedCells.size()
             >=
             *maxItems;

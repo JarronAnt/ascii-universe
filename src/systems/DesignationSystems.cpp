@@ -1,17 +1,128 @@
 #include "ascii/systems/DesignationSystems.hpp"
 
-#include "ascii/Components.hpp"
 #include "ascii/Designations.hpp"
 #include "ascii/Position.hpp"
 #include "ascii/Tile.hpp"
 #include "ascii/systems/SystemUtils.hpp"
 
 #include <set>
-#include <utility>
+#include <tuple>
 #include <vector>
 
 namespace ascii::systems
 {
+
+namespace
+{
+
+bool validDesignation(
+    const GameMap& map,
+    DesignationType type,
+    Position position
+)
+{
+    if (
+        !map.inBounds(
+            position
+        )
+    )
+    {
+        return false;
+    }
+
+    const Tile& tile =
+        map.at(
+            position
+        );
+
+    switch (type)
+    {
+        case DesignationType::Mine:
+            return
+                tile.shape ==
+                    TileShape::Wall;
+
+        case DesignationType::DigDown:
+        {
+            if (
+                !tile.walkable()
+                ||
+                position.z <= 0
+            )
+            {
+                return false;
+            }
+
+            const Position below{
+                position.x,
+                position.y,
+                position.z - 1
+            };
+
+            return
+                map.at(
+                    below
+                ).shape ==
+                    TileShape::Wall;
+        }
+
+        case DesignationType::DigUp:
+        {
+            if (
+                !tile.walkable()
+                ||
+                position.z >=
+                    map.depth() - 1
+            )
+            {
+                return false;
+            }
+
+            const Position above{
+                position.x,
+                position.y,
+                position.z + 1
+            };
+
+            return
+                map.at(
+                    above
+                ).shape ==
+                    TileShape::Wall;
+        }
+
+        case DesignationType::FellTree:
+            return
+                tile.feature ==
+                    TileFeature::Tree;
+    }
+
+    return false;
+}
+
+JobType jobTypeForDesignation(
+    DesignationType type
+)
+{
+    switch (type)
+    {
+        case DesignationType::Mine:
+            return JobType::Mine;
+
+        case DesignationType::DigDown:
+            return JobType::DigDown;
+
+        case DesignationType::DigUp:
+            return JobType::DigUp;
+
+        case DesignationType::FellTree:
+            return JobType::FellTree;
+    }
+
+    return JobType::Mine;
+}
+
+}
 
 void deduplicateDesignations(
     entt::registry& registry
@@ -19,7 +130,7 @@ void deduplicateDesignations(
 {
     auto view =
         registry.view<
-            MineDesignation,
+            Designation,
             Position,
             DesignationLifecycle
         >();
@@ -27,16 +138,16 @@ void deduplicateDesignations(
     std::vector<entt::entity>
         entities;
 
-    for (auto entity : view)
+    for (
+        auto entity :
+        view
+    )
     {
-        const auto& lifecycle =
+        if (
             view.get<
                 DesignationLifecycle
-            >(entity);
-
-        if (
-            lifecycle.state ==
-            DesignationState::Active
+            >(entity).state ==
+                DesignationState::Active
         )
         {
             entities.push_back(
@@ -50,46 +161,55 @@ void deduplicateDesignations(
     );
 
     std::set<
-        std::pair<int, int>
+        std::tuple<
+            int,
+            int,
+            int,
+            int
+        >
     > seen;
 
-    for (auto entity : entities)
+    for (
+        auto entity :
+        entities
+    )
     {
+        const auto& designation =
+            registry.get<
+                Designation
+            >(entity);
+
         const auto& position =
             registry.get<
                 Position
             >(entity);
 
         const auto key =
-            std::make_pair(
+            std::make_tuple(
+                static_cast<int>(
+                    designation.type
+                ),
                 position.x,
-                position.y
+                position.y,
+                position.z
             );
 
-        const auto [
-            iterator,
-            inserted
-        ] = seen.insert(key);
-
-        (void)iterator;
-
-        if (inserted)
+        if (
+            !seen.insert(
+                key
+            ).second
+        )
         {
-            continue;
-        }
-
-        auto& lifecycle =
             registry.get<
                 DesignationLifecycle
-            >(entity);
+            >(entity).state =
+                DesignationState::Ignored;
 
-        lifecycle.state =
-            DesignationState::Ignored;
-
-        hideDesignation(
-            registry,
-            entity
-        );
+            hideDesignation(
+                registry,
+                entity
+            );
+        }
     }
 }
 
@@ -101,7 +221,7 @@ void createDesignationJobs(
 {
     auto view =
         registry.view<
-            MineDesignation,
+            Designation,
             Position,
             DesignationLifecycle
         >();
@@ -109,16 +229,16 @@ void createDesignationJobs(
     std::vector<entt::entity>
         entities;
 
-    for (auto entity : view)
+    for (
+        auto entity :
+        view
+    )
     {
-        const auto& lifecycle =
+        if (
             view.get<
                 DesignationLifecycle
-            >(entity);
-
-        if (
-            lifecycle.state ==
-            DesignationState::Active
+            >(entity).state ==
+                DesignationState::Active
         )
         {
             entities.push_back(
@@ -131,11 +251,19 @@ void createDesignationJobs(
         entities
     );
 
-    for (auto entity : entities)
+    for (
+        auto entity :
+        entities
+    )
     {
         auto& lifecycle =
             registry.get<
                 DesignationLifecycle
+            >(entity);
+
+        const auto& designation =
+            registry.get<
+                Designation
             >(entity);
 
         const Position position =
@@ -144,16 +272,11 @@ void createDesignationJobs(
             >(entity);
 
         if (
-            !map.inBounds(
-                position.x,
-                position.y
+            !validDesignation(
+                map,
+                designation.type,
+                position
             )
-            ||
-            map.at(
-                position.x,
-                position.y
-            ).type !=
-                TileType::Wall
         )
         {
             lifecycle.state =
@@ -168,7 +291,9 @@ void createDesignationJobs(
         }
 
         jobBoard.add(
-            JobType::Mine,
+            jobTypeForDesignation(
+                designation.type
+            ),
             position,
             entity
         );

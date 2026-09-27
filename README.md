@@ -1,262 +1,673 @@
 # ASCII Universe
 
-ASCII Universe is a C++20 colony and world simulation engine inspired by **Dwarf Fortress**, **Goblin Camp**, **KeeperRL**, and traditional roguelikes.
+ASCII Universe is a **C++20 colony and world simulation game** inspired by **Dwarf Fortress**, **Goblin Camp**, **KeeperRL**, and classic roguelikes.
 
-The goal is to progressively build a persistent simulated world in which autonomous agents perform jobs, gather resources, construct settlements, satisfy needs, form relationships, create civilizations, and eventually participate in centuries of procedurally generated history.
+The long-term goal is a persistent simulated world where autonomous inhabitants mine, gather resources, haul items, construct settlements, operate workshops, satisfy needs, form relationships, create civilizations, and eventually participate in procedurally generated history.
 
-The project is being built from the ground up as both a learning project and the foundation for a much larger ASCII simulation game.
-
----
-
-# Current Milestone
-
-ASCII Universe has now moved beyond being a simple ASCII renderer.
-
-The current simulation supports the complete first autonomous work loop:
+The project is being built from the ground up with a strong separation between:
 
 ```text
-Player Mining Designation
-          ↓
-Designation Validation
-          ↓
-Duplicate Detection
-          ↓
-Mining Job Creation
-          ↓
-Job Board
-          ↓
-Profession Check
-          ↓
-Worker Assignment
-          ↓
-A* Pathfinding
-          ↓
-Autonomous Movement
-          ↓
-Mining Execution
-          ↓
-Wall Becomes Floor
-          ↓
-Job Complete
-```
-
-The player does not directly command individual goblins.
-
-Instead, the player creates work that qualified agents autonomously claim and perform.
-
-This is the foundation for the colony simulation architecture used throughout the rest of the project.
-
----
-
-# Current Features
-
-## Core Engine
-
-- [x] C++20
-- [x] CMake build system
-- [x] Ninja support
-- [x] macOS support
-- [x] Linux support
-- [x] Tile-based world
-- [x] Terminal ASCII rendering
-- [x] ECS architecture using EnTT
-- [x] Separation between simulation and rendering
-
----
-
-## Simulation
-
-- [x] Fixed timestep simulation
-- [x] 10 simulation ticks per second
-- [x] Real-time accumulator
-- [x] Manual single-step capable simulation architecture
-- [x] Deterministic system ordering
-- [x] Simulation tick counter
-- [x] Seeded deterministic random number generator
-
-The renderer and simulation run independently.
-
-```text
-Real Time
-    ↓
-Accumulator
-    ↓
-Fixed Simulation Tick
-    ↓
+Player Intent
+     ↓
+Designations
+     ↓
+Jobs
+     ↓
+Autonomous Workers
+     ↓
 Simulation Systems
-    ↓
-World State
-    ↓
-Renderer
+     ↓
+Persistent World State
+     ↓
+SDL ASCII Frontend
 ```
 
-This allows the simulation to eventually support:
-
-- Pause
-- Single-step debugging
-- Fast-forward
-- Replays
-- Historical simulation
-- Headless simulation
-- Automated testing
-
-without tying simulation behavior to rendering speed.
+The player is not intended to directly control individual goblins. Instead, the player designates work and manages the settlement while qualified goblins autonomously claim and perform jobs.
 
 ---
 
-# Deterministic Randomness
+## Current Status
 
-World randomness is controlled through a seeded pseudo-random number generator.
+ASCII Universe currently has a working simulation foundation with:
 
-Example:
+- A 3D Dwarf Fortress-style world made of 2D Z-level slices
+- Procedural terrain and geology
+- Trees and surface resources
+- Underground mineral layers and ore veins
+- Water with deterministic flow simulation
+- Autonomous mining
+- Digging upward and downward
+- Tree felling
+- Item spawning
+- Cross-Z-level hauling
+- Stockpiles
+- A* pathfinding across stairs, ramps, and multiple Z-levels
+- Save/load support
+- Deterministic world seeds
+- An SDL3 ASCII frontend
+- Runtime Z-level switching
 
-```cpp
-constexpr std::uint64_t WorldSeed =
-    123456789ULL;
-
-Simulation simulation{
-    40,
-    20,
-    WorldSeed
-};
-```
-
-A simulation started with the same seed begins with the same deterministic random sequence.
-
-This will eventually be used for:
-
-```text
-World Seed
-   ├── terrain
-   ├── climate
-   ├── rivers
-   ├── geology
-   ├── creatures
-   ├── civilizations
-   ├── artifacts
-   ├── personalities
-   └── history
-```
-
-The RNG state is designed so it can eventually be serialized along with world saves.
+The current development build automatically creates initial jobs so the simulation systems can be tested before the full player designation UI is implemented.
 
 ---
 
-# World Map
+# Screens and World Model
 
-The current world uses a contiguous two-dimensional tile grid.
-
-Current tile types:
+ASCII Universe uses a **3D tile volume**:
 
 ```text
-# = Wall
-. = Floor
+                 Z 11
+        ┌──────────────────┐
+        │ Surface / Air    │
+        └──────────────────┘
+
+                 Z 10
+        ┌──────────────────┐
+        │ Grass / Trees    │
+        └──────────────────┘
+
+                  Z 9
+        ┌──────────────────┐
+        │ Soil / Clay      │
+        └──────────────────┘
+
+                  Z 8
+        ┌──────────────────┐
+        │ Soil / Stone     │
+        └──────────────────┘
+
+                  Z 7
+        ┌──────────────────┐
+        │ Limestone / Ore  │
+        └──────────────────┘
+
+                  ...
+
+                  Z 0
+        ┌──────────────────┐
+        │ Deep Rock        │
+        └──────────────────┘
 ```
+
+The simulation exists in full 3D, but the player views **one horizontal Z-level at a time**, similar to Dwarf Fortress.
+
+A goblin can be working underground while another goblin works on the surface.
+
+Changing the viewed Z-level does not pause or alter simulation on the other levels.
+
+---
+
+# SDL ASCII Frontend
+
+The project now uses **SDL3** rather than rendering directly into the terminal.
+
+The SDL frontend provides:
+
+- A resizable window
+- Colored ASCII glyphs
+- Independent simulation and rendering
+- Z-level switching
+- Keyboard input
+- A simulation HUD
+- Display of terrain beneath open-air tiles
+- No dependence on terminal dimensions, ANSI cursor positioning, or terminal state
+
+The current frontend uses SDL's built-in fixed-width ASCII rendering while the interface is still under active development.
+
+A future version can replace the glyph renderer with SDL_ttf without changing the simulation.
+
+---
+
+# Current Controls
+
+```text
+[ / , / PageDown     View lower Z-level
+] / . / PageUp       View higher Z-level
+
+Space                Pause / resume simulation
+
+S                    Save world
+
+Q / Escape           Save and quit
+```
+
+Additional camera movement, mouse selection, designation painting, and simulation speed controls are planned.
+
+---
+
+# Tile System
+
+Tiles are no longer simply `Floor` or `Wall`.
+
+Each tile stores several independent properties:
+
+```text
+Tile
+│
+├── Shape
+│   ├── Open
+│   ├── Floor
+│   ├── Wall
+│   ├── Ramp
+│   ├── Up Stair
+│   ├── Down Stair
+│   └── Up/Down Stair
+│
+├── Material
+│
+├── Feature
+│   └── Tree
+│
+└── Liquid
+    ├── Type
+    └── Depth
+```
+
+Separating tile geometry from material allows the simulation to represent things such as:
+
+```text
+Granite Wall
+Iron Ore Wall
+Soil Wall
+Limestone Floor
+Granite Stair
+Grass Floor
+```
+
+without creating a different tile enum for every possible combination.
+
+---
+
+# Geology and Materials
+
+The procedural world generator creates material-aware geology.
+
+Current material categories include:
+
+### Surface and Soil
+
+```text
+Grass
+Soil
+Clay
+Sand
+```
+
+### Sedimentary Stone
+
+```text
+Limestone
+Sandstone
+```
+
+### Igneous / Metamorphic Stone
+
+```text
+Granite
+Basalt
+Marble
+Obsidian
+```
+
+### Minerals and Ores
+
+```text
+Coal
+Iron Ore
+Copper Ore
+Tin Ore
+Silver Ore
+Gold Ore
+Quartz
+```
+
+### Wood
+
+```text
+Oak
+Pine
+```
+
+World depth influences material generation.
+
+For example:
+
+```text
+Surface
+   ↓
+Grass
+
+Upper underground
+   ↓
+Soil
+Clay
+Sand
+
+Intermediate layers
+   ↓
+Limestone
+Sandstone
+
+Deeper layers
+   ↓
+Granite
+Basalt
+Marble
+Obsidian
+
+Mineral veins
+   ↓
+Iron
+Copper
+Tin
+Silver
+Gold
+Coal
+Quartz
+```
+
+The geology system is intended to eventually support biome-specific stone, gem deposits, aquifers, magma, soil fertility, and much larger geological formations.
+
+---
+
+# Procedural World Generation
+
+World generation is deterministic from a seed.
 
 Example:
 
-```text
-########################################
-#......................................#
-#......................................#
-#.......................#######........#
-#.......................#######........#
-#.......................#######........#
-#......................................#
-########################################
+```bash
+./build/ascii_universe --seed 123456
 ```
 
-Tiles expose properties such as whether they can be walked across.
+The same seed produces the same generated starting world.
 
-The current world is two-dimensional, but the architecture is intended to eventually support Dwarf Fortress-style Z levels.
+A different seed:
+
+```bash
+./build/ascii_universe --seed 999999
+```
+
+produces another world.
+
+The current generator creates:
+
+- A variable-height surface
+- Grass layers
+- Soil, clay, and sand
+- Sedimentary layers
+- Deep stone layers
+- Mineral veins
+- Trees
+- Water
+- Ramps
+- A test underground fortress area
+- Vertical access between surface and underground layers
+
+World generation uses a separate deterministic random stream from runtime simulation randomness.
+
+---
+
+# Water Simulation
+
+Water is represented directly on world tiles.
+
+Liquid depth currently ranges from:
+
+```text
+0 = dry
+1 = shallow
+...
+7 = full
+```
+
+The current system is a deterministic cellular fluid simulation.
+
+Water attempts to move in this order:
+
+```text
+Gravity
+   ↓
+Lower Z-level
+   ↓
+Ramps / vertical connections
+   ↓
+Horizontal equalization
+```
+
+Deep water can prevent normal goblin movement.
+
+This is intentionally a gameplay-oriented fluid simulation rather than a full physical fluid solver.
+
+Future work may include:
+
+- Pressure
+- Flow strength
+- Aquifers
+- Pumps
+- Drainage
+- Evaporation
+- Freezing
+- Magma
+- Temperature interaction
+- Swimming and drowning
 
 ---
 
 # Entity Component System
 
-ASCII Universe uses **EnTT** for its entity-component system.
+ASCII Universe uses **EnTT** for its ECS architecture.
 
-Entities represent identity while components store data.
+Entities provide identity while components store data and capabilities.
 
-For example, a miner might contain:
+Example:
 
 ```text
-Entity #12
+Uru
+│
 ├── Goblin
+├── Name
 ├── Miner
-├── Name("Uru")
 ├── Position
-├── Glyph('g')
-└── AssignedJob
+├── Glyph
+├── AssignedJob
+└── MovementPath
 ```
 
-Components currently include or support:
+Another goblin might contain:
 
 ```text
-Name
-Goblin
-Glyph
-Position
-MovementPath
+Brakka
+│
+├── Goblin
+├── Name
+├── Woodcutter
+├── Position
+└── Glyph
+```
+
+Current professions include:
+
+```text
 Miner
 Hauler
-AssignedJob
-MineDesignation
-DesignationLifecycle
+Woodcutter
 ```
 
-This allows systems to operate only on the entities containing the data they need.
+Profession components determine which jobs a goblin may claim.
+
+Eventually these marker components may evolve into a richer labor and skill system.
 
 ---
 
-# Professions
+# Job System
 
-Goblin capabilities are represented through ECS marker components.
+The simulation owns a central `JobBoard`.
+
+Current job types are:
+
+```text
+Mine
+Dig Down
+Dig Up
+Fell Tree
+Haul
+```
+
+Jobs move through the following states:
+
+```text
+Available
+Assigned
+Complete
+Cancelled
+```
+
+The basic worker pipeline is:
+
+```text
+Designation
+     ↓
+Job Creation
+     ↓
+Available Job
+     ↓
+Find Qualified Idle Goblin
+     ↓
+Check Reachability
+     ↓
+A* Pathfinding
+     ↓
+Assign Worker
+     ↓
+Movement
+     ↓
+Perform Work
+     ↓
+Complete Job
+```
+
+Workers therefore operate autonomously rather than receiving direct movement commands from the player.
+
+---
+
+# Mining
+
+Mining removes a solid wall from the world.
+
+Example:
+
+```text
+Before:
+
+#######
+#..g###
+#...X##
+#######
+
+After:
+
+#######
+#...g##
+#....##
+#######
+```
+
+The mined material determines which item is produced.
 
 Examples:
 
-```cpp
-struct Miner {};
-struct Hauler {};
-```
-
-A goblin can therefore possess multiple professions:
-
 ```text
-Goblin
-├── Miner
-├── Hauler
-└── Builder
+Granite Wall
+    ↓
+Granite Stone
+
+Iron Ore Wall
+    ↓
+Iron Ore
+
+Gold Ore Wall
+    ↓
+Gold Ore
 ```
 
-rather than being restricted to one large profession enum.
-
-Currently implemented:
-
-- [x] Miner
-- [x] Hauler
-
-Currently only miners have executable work.
-
-Haulers will become active when the item and stockpile systems are implemented.
-
-Planned professions include:
-
-- [ ] Builder
-- [ ] Farmer
-- [ ] Carpenter
-- [ ] Smith
-- [ ] Cook
-- [ ] Doctor
-- [ ] Soldier
+The resulting item is a real ECS entity and can later be hauled to a stockpile.
 
 ---
 
-# A* Pathfinding
+# Vertical Excavation
 
-The project contains a working A* pathfinder.
+Miners can also create vertical access.
 
-Movement currently supports:
+## Dig Down
+
+A miner works from the current tile and creates a connection to the level below.
+
+Conceptually:
+
+```text
+Before
+
+Z 7       .
+Z 6       #
+
+After
+
+Z 7       >
+           │
+Z 6       <
+```
+
+## Dig Up
+
+The inverse process allows underground goblins to excavate toward the level above.
+
+Multiple connected levels can form:
+
+```text
+Z 10      >
+           │
+Z  9      X
+           │
+Z  8      X
+           │
+Z  7      <
+```
+
+The pathfinder recognizes these vertical connections.
+
+---
+
+# Tree Felling
+
+Trees are tile features rather than terrain walls.
+
+A woodcutter can receive a `FellTree` job:
+
+```text
+Tree
+  ↓
+Woodcutter walks adjacent
+  ↓
+Tree removed
+  ↓
+Log item created
+  ↓
+Haul job generated
+  ↓
+Log delivered to stockpile
+```
+
+Current tree materials include:
+
+```text
+Oak
+Pine
+```
+
+---
+
+# Items
+
+Items are ECS entities.
+
+Current broad item categories are:
+
+```text
+Stone
+Ore
+Soil
+Log
+```
+
+Each item also retains its underlying material.
+
+For example:
+
+```text
+Item
+├── Type: Ore
+└── Material: IronOre
+```
+
+or:
+
+```text
+Item
+├── Type: Log
+└── Material: OakWood
+```
+
+This allows future systems to distinguish between generic item purpose and exact material.
+
+---
+
+# Stockpiles
+
+Stockpiles occupy regions of the 3D world.
+
+A stockpile stores:
+
+```text
+Bounds
+Accepted Item Types
+Current Items
+Reserved Cells
+Optional Capacity
+```
+
+Destination cells are reserved when haul jobs are generated so multiple haulers do not attempt to place items in the same location.
+
+Stockpiles can currently accept categories such as:
+
+```text
+Stone
+Ore
+Soil
+Logs
+```
+
+Future stockpile controls will allow the player to create, resize, delete, and configure stockpiles from the SDL interface.
+
+---
+
+# Hauling
+
+Hauling is fully autonomous.
+
+The pipeline is:
+
+```text
+Loose Item
+    ↓
+Find Compatible Stockpile
+    ↓
+Reserve Destination Cell
+    ↓
+Create Haul Job
+    ↓
+Hauler Claims Job
+    ↓
+Pathfind to Item
+    ↓
+Pick Up Item
+    ↓
+Pathfind to Stockpile
+    ↓
+Drop Item
+    ↓
+Complete Job
+```
+
+Because pathfinding operates across Z-levels, a surface hauler can retrieve ore from underground through stairs and return it to a surface stockpile.
+
+---
+
+# 3D A* Pathfinding
+
+Pathfinding operates in the full `(x, y, z)` world.
+
+Normal movement remains four-directional on a level:
 
 ```text
     ↑
@@ -266,656 +677,331 @@ Movement currently supports:
     ↓
 ```
 
-Diagonal movement is not currently enabled.
+Vertical movement is possible through:
 
-The pathfinder uses Manhattan distance:
+```text
+Up Stairs
+Down Stairs
+Up/Down Stairs
+Ramps
+```
+
+The heuristic includes all three dimensions:
 
 ```text
 |goal.x - current.x|
 +
 |goal.y - current.y|
++
+|goal.z - current.z|
 ```
 
-as its heuristic.
-
-A path:
-
-- Does not contain the starting tile
-- Does contain the destination
-- Rejects non-walkable destinations
-- Avoids wall tiles
-- Uses deterministic tie-breaking
-
-Example:
-
-```text
-####################
-#..................#
-#.g................#
-#.......#####......#
-#...........#......#
-#...........#......#
-#...........#......#
-#...............X..#
-#..................#
-####################
-```
-
-The goblin calculates a path around obstacles rather than attempting to move through them.
+Pathfinding is deterministic and uses stable tie-breaking.
 
 ---
 
-# Movement
+# Fixed Timestep Simulation
 
-Entities can receive a `MovementPath` component containing:
+The simulation runs independently from the SDL renderer.
+
+Current simulation frequency:
 
 ```text
-Path Nodes
-Current Path Index
+10 ticks / second
 ```
 
-The movement system executes during fixed simulation ticks.
-
-Currently:
+The runtime loop is:
 
 ```text
-1 movement step
-=
-1 simulation tick
+Real Time
+    ↓
+Accumulator
+    ↓
+Fixed Simulation Tick
+    ↓
+Systems
+    ↓
+World State
+    ↓
+SDL Renderer
 ```
 
-The architecture will later allow different movement speeds without changing the global simulation tick rate.
+This architecture allows rendering speed and simulation speed to remain independent.
 
-Examples:
+It also provides a foundation for:
 
 ```text
-Goblin
-1 tile every tick
-
-Armoured Goblin
-1 tile every 2 ticks
-
-Wolf
-2 movement actions per tick
+Pause
+Fast-forward
+Single stepping
+Replays
+Headless simulation
+Automated testing
+Long-term historical simulation
 ```
 
 ---
 
-# Designations
+# Current System Order
 
-The project now supports player-created mining designations.
-
-Example:
-
-```text
-#######
-##X####
-##X####
-##X####
-#######
-```
-
-`X` indicates a wall selected for mining.
-
-A mining designation is represented by an ECS entity containing:
-
-```text
-Position
-MineDesignation
-DesignationLifecycle
-Glyph
-```
-
----
-
-# Designation Lifecycle
-
-Designations currently have three states:
-
-```text
-Active
-Ignored
-Consumed
-```
-
-### Active
-
-The designation is valid and awaiting conversion into a job.
-
-### Ignored
-
-The designation was invalid or was a duplicate of another designation.
-
-### Consumed
-
-The designation has already produced a job.
-
----
-
-# Designation Deduplication
-
-Multiple mining designations cannot create multiple jobs for the same wall.
-
-For example:
-
-```cpp
-designateMine({24, 8});
-designateMine({24, 8});
-designateMine({24, 8});
-```
-
-will produce only one valid mining operation.
-
-Conceptually:
-
-```text
-Designation A ──→ Active
-
-Designation B ──→ Ignored
-
-Designation C ──→ Ignored
-```
-
-Deduplication happens before jobs are generated.
-
-This prevents duplicate agents from trying to perform the same operation.
-
----
-
-# Job Board
-
-The simulation now owns a central `JobBoard`.
-
-Jobs have:
-
-```text
-Job ID
-Job Type
-Target Position
-Work Position
-State
-Worker
-Source Designation
-```
-
-Current job types:
-
-```text
-Mine
-Haul
-```
-
-Current job states:
-
-```text
-Available
-Assigned
-Complete
-Cancelled
-```
-
-Example job:
-
-```text
-Job #4
-
-Type:
-    Mine
-
-Target:
-    (24, 8)
-
-Work Position:
-    (23, 8)
-
-State:
-    Assigned
-
-Worker:
-    Uru
-```
-
-The job target and worker position are deliberately different.
-
-A mining target is a wall:
-
-```text
-#
-```
-
-which cannot be walked onto.
-
-The miner therefore finds a valid adjacent floor tile:
-
-```text
-g#
-```
-
-and performs the mining operation from there.
-
----
-
-# Autonomous Worker Assignment
-
-Workers now autonomously claim jobs based on their profession.
-
-For example:
-
-```text
-Uru
-├── Goblin
-└── Miner
-```
-
-can accept:
-
-```text
-Mine
-```
-
-while:
-
-```text
-Kesh
-├── Goblin
-└── Hauler
-```
-
-will ignore mining jobs.
-
-The assignment pipeline is:
-
-```text
-Available Job
-     ↓
-Find Idle Goblin
-     ↓
-Check Profession
-     ↓
-Find Valid Work Position
-     ↓
-Check Reachability
-     ↓
-Run A*
-     ↓
-Assign Worker
-```
-
-Workers therefore do not need to be directly commanded by the player.
-
----
-
-# Mining
-
-Mining is the first fully autonomous job type implemented in ASCII Universe.
-
-The complete current pipeline is:
-
-```text
-Player
-   ↓
-Mine Wall
-   ↓
-MineDesignation
-   ↓
-Designation Deduplication
-   ↓
-Create Mine Job
-   ↓
-JobBoard
-   ↓
-Find Idle Miner
-   ↓
-Find Adjacent Walkable Tile
-   ↓
-A* Path
-   ↓
-MovementPath
-   ↓
-Goblin Walks
-   ↓
-Goblin Reaches Work Position
-   ↓
-MiningSystem
-   ↓
-Wall → Floor
-   ↓
-Job Complete
-```
-
-Example:
-
-Before:
-
-```text
-.......#
-.......#
-.....g.#
-.......#
-```
-
-After the miner arrives:
-
-```text
-........
-......g.
-........
-........
-```
-
-The world has actually changed.
-
-The wall was not merely visually hidden.
-
-Its underlying tile changed from:
-
-```cpp
-TileType::Wall
-```
-
-to:
-
-```cpp
-TileType::Floor
-```
-
-making it walkable for future pathfinding.
-
----
-
-# System Ordering
-
-Simulation systems currently run in a deterministic order.
-
-Conceptually:
-
-```text
-Simulation::step()
-│
-├── designationDedupSystem()
-│
-├── designationToJobsSystem()
-│
-├── jobAssignmentSystem()
-│
-├── movementSystem()
-│
-├── miningSystem()
-│
-└── tick++
-```
-
-Ordering is important.
-
-For example:
+A simulation step currently follows roughly:
 
 ```text
 Designation Deduplication
-```
-
-must happen before:
-
-```text
-Designation → Job
-```
-
-otherwise duplicate jobs could be created.
-
-As more systems are introduced, the simulation tick will grow into something similar to:
-
-```text
-Input Commands
-      ↓
-Designation Processing
-      ↓
-Job Generation
-      ↓
-Job Assignment
-      ↓
-AI
-      ↓
-Path Planning
-      ↓
+          ↓
+Designation → Jobs
+          ↓
+Haul Job Generation
+          ↓
+Excavation Job Assignment
+          ↓
+Tree-Felling Assignment
+          ↓
+Hauling Assignment
+          ↓
 Movement
-      ↓
-Job Execution
-      ↓
-Item Events
-      ↓
+          ↓
+Excavation
+          ↓
+Tree Felling
+          ↓
 Hauling
-      ↓
-Needs
-      ↓
-Environment
-      ↓
-Cleanup
-      ↓
-Time
+          ↓
+Item Spawn Events
+          ↓
+Item Pickup Events
+          ↓
+Item Drop Events
+          ↓
+Additional Haul Generation
+          ↓
+Water Simulation
+          ↓
+Tick++
+```
+
+Explicit system ordering is important because later systems frequently depend on changes produced earlier in the same simulation tick.
+
+---
+
+# Save / Load
+
+ASCII Universe has persistent JSON saves.
+
+The current save format stores:
+
+- World seed
+- World dimensions
+- Z-level depth
+- Tile shape
+- Tile material
+- Tile features
+- Water type and depth
+- Goblins
+- Positions
+- Professions
+- Items and materials
+- Item state
+- Stockpiles
+- Reserved stockpile cells
+- Designations
+- Jobs
+- Job assignments
+- Movement paths
+- Carried items
+- Simulation tick
+- Runtime RNG state
+
+The current 3D save format is **version 2**.
+
+Older development saves from the previous 2D format are not compatible.
+
+Default save:
+
+```text
+saves/autosave.json
 ```
 
 ---
 
-# Terminal Renderer
+# Command-Line Options
 
-The current renderer uses the terminal as an ASCII framebuffer.
+Create a random world:
 
-The rendering process is:
-
-```text
-Create Character Buffer
-        ↓
-Draw Terrain
-        ↓
-Draw Entities
-        ↓
-Draw Designations
-        ↓
-Present Buffer
+```bash
+./build/ascii_universe
 ```
 
-This means simulation code does not depend on the terminal renderer.
+Create a deterministic world:
 
-Eventually:
-
-```text
-Simulation
-    │
-    ├── TerminalRenderer
-    │
-    └── SDLRenderer
+```bash
+./build/ascii_universe --seed 123456
 ```
 
-can display exactly the same underlying simulation.
+Choose a save file:
 
----
-
-# Current Demo
-
-The current development demo contains:
-
-```text
-Uru
-    Miner
-
-Kesh
-    Hauler
+```bash
+./build/ascii_universe \
+    --seed 123456 \
+    --save saves/world.json
 ```
 
-The player creates several mining designations.
+Load an existing world:
 
-Example:
-
-```text
-########################################
-#......................................#
-#......................................#
-#.......................#######........#
-#.......................X######........#
-#.......................X######........#
-#....g..................X######........#
-#.......................X######........#
-#....g..................#######........#
-#.......................#######........#
-#......................................#
-########################################
+```bash
+./build/ascii_universe \
+    --load saves/world.json
 ```
 
-Uru automatically:
+Run a fixed number of additional simulation ticks:
 
-```text
-finds mining work
-      ↓
-claims a job
-      ↓
-calculates a path
-      ↓
-walks to the wall
-      ↓
-mines it
-      ↓
-claims the next job
+```bash
+./build/ascii_universe \
+    --seed 123456 \
+    --save saves/test.json \
+    --stop-after 100
 ```
 
-Kesh does nothing because Kesh is currently a hauler and there are no hauling jobs yet.
-
-That is intentional.
+This is useful for deterministic simulation testing.
 
 ---
 
 # Architecture
 
-The project currently resembles:
+The current architecture is approximately:
 
 ```text
 ASCII Universe
 │
+├── SDL Frontend
+│   ├── Window
+│   ├── ASCII rendering
+│   ├── Colors
+│   ├── HUD
+│   ├── Keyboard events
+│   └── Z-level view
+│
 ├── Simulation
-│   │
-│   ├── Fixed Timestep
-│   ├── Simulation Time
-│   ├── Random
-│   └── System Ordering
+│   ├── Fixed timestep
+│   ├── System ordering
+│   ├── Simulation clock
+│   └── Deterministic RNG
 │
 ├── World
-│   │
-│   ├── GameMap
-│   └── Tiles
+│   ├── 3D GameMap
+│   ├── Tile geometry
+│   ├── Materials
+│   ├── Features
+│   ├── Liquids
+│   └── Procedural generation
 │
 ├── ECS
-│   │
 │   ├── Goblins
-│   ├── Positions
+│   ├── Items
 │   ├── Professions
-│   ├── Movement Paths
+│   ├── Positions
+│   ├── Movement paths
 │   └── Designations
 │
-├── AI
-│   │
-│   └── A* Pathfinder
-│
 ├── Jobs
-│   │
 │   ├── JobBoard
-│   ├── Job Assignment
-│   ├── Mine Jobs
-│   └── Haul Jobs [planned execution]
+│   ├── Excavation
+│   ├── Tree felling
+│   └── Hauling
 │
-├── Systems
-│   │
-│   ├── Designation Deduplication
-│   ├── Designation → Job
-│   ├── Job Assignment
-│   ├── Movement
-│   └── Mining
+├── AI
+│   └── 3D A*
 │
-└── Rendering
-    │
-    └── TerminalRenderer
+├── Environment
+│   └── Water
+│
+└── Persistence
+    └── Versioned JSON saves
 ```
+
+The SDL frontend does not contain simulation rules.
+
+Likewise, simulation systems do not depend on SDL.
+
+That separation is intentional.
 
 ---
 
 # Project Structure
 
-The project is currently organized around headers in the `ascii` namespace:
-
 ```text
 ascii-universe/
 │
 ├── CMakeLists.txt
+├── README.md
 │
 ├── include/
 │   └── ascii/
+│       ├── Color.hpp
 │       ├── Components.hpp
 │       ├── Designations.hpp
+│       ├── Events.hpp
 │       ├── GameMap.hpp
+│       ├── Items.hpp
 │       ├── Jobs.hpp
+│       ├── Material.hpp
 │       ├── Pathfinder.hpp
 │       ├── Position.hpp
 │       ├── Random.hpp
+│       ├── SaveManager.hpp
+│       ├── SDLFrontend.hpp
 │       ├── Simulation.hpp
-│       ├── TerminalRenderer.hpp
-│       └── Tile.hpp
+│       ├── Stockpiles.hpp
+│       ├── Tile.hpp
+│       ├── WorldGenerator.hpp
+│       │
+│       └── systems/
+│           ├── DesignationSystems.hpp
+│           ├── ExcavationSystems.hpp
+│           ├── FellingSystems.hpp
+│           ├── HaulingSystems.hpp
+│           ├── ItemSystems.hpp
+│           ├── MovementSystem.hpp
+│           ├── StockpileSystems.hpp
+│           ├── SystemUtils.hpp
+│           └── WaterSystem.hpp
 │
-├── src/
-│   └── main.cpp
-│
-└── build/
-```
-
-As the project grows, large systems will eventually be moved into separate source files.
-
-A future structure may look like:
-
-```text
-ascii-universe/
-│
-├── include/ascii/
-│   ├── ai/
-│   ├── core/
-│   ├── ecs/
-│   ├── items/
-│   ├── jobs/
-│   ├── persistence/
-│   ├── render/
-│   ├── simulation/
-│   ├── systems/
-│   └── world/
-│
-├── src/
-│   ├── ai/
-│   ├── items/
-│   ├── jobs/
-│   ├── render/
-│   ├── simulation/
-│   ├── systems/
-│   └── world/
-│
-├── tests/
-├── assets/
-└── saves/
+└── src/
+    ├── main.cpp
+    ├── SaveManager.cpp
+    ├── SDLFrontend.cpp
+    ├── Simulation.cpp
+    ├── WorldGenerator.cpp
+    │
+    └── systems/
+        ├── DesignationSystems.cpp
+        ├── ExcavationSystems.cpp
+        ├── FellingSystems.cpp
+        ├── HaulingSystems.cpp
+        ├── ItemSystems.cpp
+        ├── MovementSystem.cpp
+        ├── StockpileSystems.cpp
+        └── WaterSystem.cpp
 ```
 
 ---
 
 # Dependencies
 
-Current dependencies:
+ASCII Universe currently uses:
 
-- C++20
-- CMake
-- Ninja
-- EnTT
-- nlohmann/json
+```text
+C++20
+CMake
+Ninja
+EnTT
+nlohmann/json
+SDL3
+```
 
-Dependencies are fetched through CMake.
+EnTT and nlohmann/json are fetched through CMake.
 
-Planned future dependencies:
-
-- SDL3
-- SDL3_ttf
-
-SDL will eventually provide a richer graphical ASCII interface while preserving the same simulation layer.
+SDL3 is currently expected to be installed on the system.
 
 ---
 
@@ -923,19 +1009,19 @@ SDL will eventually provide a richer graphical ASCII interface while preserving 
 
 ## macOS
 
-Install Apple's command-line development tools:
+Install Apple's development tools if needed:
 
 ```bash
 xcode-select --install
 ```
 
-Install CMake and Ninja:
+Install dependencies:
 
 ```bash
-brew install cmake ninja
+brew install cmake ninja sdl3
 ```
 
-Clone the repository:
+Clone:
 
 ```bash
 git clone https://github.com/JarronAnt/ascii-universe.git
@@ -964,10 +1050,15 @@ Run:
 
 ## Arch Linux / CachyOS
 
-Install the required development tools:
+Install dependencies:
 
 ```bash
-sudo pacman -S --needed base-devel cmake ninja git
+sudo pacman -S --needed \
+    base-devel \
+    cmake \
+    ninja \
+    git \
+    sdl3
 ```
 
 Clone and build:
@@ -978,35 +1069,11 @@ cd ascii-universe
 
 cmake -S . -B build -G Ninja
 cmake --build build
-
-./build/ascii_universe
 ```
 
----
-
-## Ubuntu / Debian
-
-Install:
+Run:
 
 ```bash
-sudo apt update
-
-sudo apt install \
-    build-essential \
-    cmake \
-    ninja-build \
-    git
-```
-
-Then:
-
-```bash
-git clone https://github.com/JarronAnt/ascii-universe.git
-cd ascii-universe
-
-cmake -S . -B build -G Ninja
-cmake --build build
-
 ./build/ascii_universe
 ```
 
@@ -1014,13 +1081,19 @@ cmake --build build
 
 # Development Workflow
 
-After the initial CMake configuration:
+Normal rebuild:
 
 ```bash
-cmake --build build && ./build/ascii_universe
+cmake --build build
 ```
 
-For a clean rebuild:
+Run:
+
+```bash
+./build/ascii_universe --seed 123456
+```
+
+Clean rebuild:
 
 ```bash
 rm -rf build
@@ -1028,8 +1101,6 @@ rm -rf build
 cmake -S . -B build -G Ninja
 
 cmake --build build
-
-./build/ascii_universe
 ```
 
 ---
@@ -1038,523 +1109,207 @@ cmake --build build
 
 ## Phase 1 — Core Simulation
 
-- [x] C++20 project
-- [x] CMake
-- [x] Tile map
-- [x] Terminal renderer
-- [x] ECS
-- [x] Goblin entities
-- [x] Fixed timestep simulation
+- [x] C++20
+- [x] CMake / Ninja
+- [x] EnTT ECS
+- [x] Fixed timestep
 - [x] Deterministic RNG
-- [x] A* pathfinding
 - [x] Autonomous movement
+- [x] A* pathfinding
 
-**Complete**
+## Phase 2 — Autonomous Work
 
----
-
-## Phase 2 — Colony Work System
-
-- [x] Mining designations
-- [x] Designation lifecycle
-- [x] Duplicate designation detection
-- [x] Central job board
-- [x] Job states
+- [x] Designations
+- [x] Job board
 - [x] Worker assignment
-- [x] Miner profession
-- [x] Hauler profession
-- [x] Reachability checks
-- [x] Mining execution
-- [x] Terrain mutation
-- [x] Sequential autonomous jobs
+- [x] Mining
+- [x] Hauling
+- [x] Stockpiles
+- [x] Item events
+- [x] Tree felling
+- [x] Dig up/down
 
-**Complete**
+## Phase 3 — 3D World
 
----
+- [x] Dwarf Fortress-style Z-levels
+- [x] 3D positions
+- [x] Vertical pathfinding
+- [x] Stairs
+- [x] Ramps
+- [x] Material-aware geology
+- [x] Mineral veins
+- [x] Surface trees
+- [x] Water simulation
 
-## Phase 3 — Items and Logistics
+## Phase 4 — Persistence and Frontend
 
-Next milestone:
+- [x] Versioned saves
+- [x] Save/load world state
+- [x] RNG state persistence
+- [x] SDL3 frontend
+- [x] Colored ASCII
+- [x] Z-level viewing
+- [x] Pause
+- [x] Runtime save controls
 
-- [ ] Item entities
-- [ ] Item types
-- [ ] Item spawn events
-- [ ] Stone generated from mining
-- [ ] Ground item state
-- [ ] Carrying state
-- [ ] Stockpile zones
-- [ ] Stockpile filters
-- [ ] Hauling job generation
-- [ ] Automatic hauler assignment
-- [ ] Item pickup
-- [ ] Item transport
-- [ ] Item drop-off
-- [ ] Item reservations
+## Phase 5 — Playable Fortress Controls
 
-The target pipeline is:
+Next major milestone:
 
-```text
-Mine Wall
-    ↓
-Stone Spawn Event
-    ↓
-Stone Entity
-    ↓
-Ground Item
-    ↓
-Find Stockpile
-    ↓
-Create Haul Job
-    ↓
-Find Hauler
-    ↓
-Walk to Stone
-    ↓
-Pick Up
-    ↓
-Walk to Stockpile
-    ↓
-Drop Stone
-```
+- [ ] Camera movement
+- [ ] Tile cursor
+- [ ] Mouse selection
+- [ ] Tile inspection
+- [ ] Interactive mining designations
+- [ ] Interactive tree-felling designations
+- [ ] Interactive dig-up/down designations
+- [ ] Stockpile painting
+- [ ] Stockpile configuration
+- [ ] Cancel designation mode
+- [ ] Simulation speed controls
+- [ ] Follow selected goblin
 
-This will make the currently idle Hauler profession functional.
+The goal of this phase is to remove hardcoded starting work from `main.cpp` and allow the player to create work entirely through the game interface.
 
----
+## Phase 6 — Construction
 
-## Phase 4 — Production
-
-- [ ] Workshops
-- [ ] Workshop jobs
-- [ ] Recipes
+- [ ] Builder labor
+- [ ] Construction designations
+- [ ] Walls
+- [ ] Floors
+- [ ] Stairs
+- [ ] Ramps
+- [ ] Doors
+- [ ] Furniture
 - [ ] Material requirements
-- [ ] Job dependencies
-- [ ] Resource reservations
-- [ ] Crafting
-- [ ] Smelting
-- [ ] Smithing
-- [ ] Carpentry
-- [ ] Farming
-- [ ] Cooking
+- [ ] Construction hauling
+
+## Phase 7 — Workshops and Industry
+
+- [ ] Workshop entities
+- [ ] Workshop job queues
+- [ ] Carpenter
+- [ ] Mason
+- [ ] Smelter
+- [ ] Forge
+- [ ] Metal bars
+- [ ] Tools
+- [ ] Weapons
+- [ ] Furniture
+- [ ] Production chains
 
 Example:
 
 ```text
 Iron Ore
-    ↓
+   ↓
 Smelter
-    ↓
+   ↓
 Iron Bar
-    ↓
+   ↓
 Forge
-    ↓
-Sword
+   ↓
+Iron Axe
+   ↓
+Woodcutter
 ```
 
----
+## Phase 8 — Goblin Simulation
 
-## Phase 5 — Goblin Simulation
-
+- [ ] Skills
+- [ ] Labor permissions
+- [ ] Needs
 - [ ] Hunger
 - [ ] Thirst
 - [ ] Sleep
-- [ ] Health
-- [ ] Injuries
 - [ ] Mood
-- [ ] Skills
-- [ ] Experience
 - [ ] Personality
 - [ ] Relationships
-- [ ] Memories
-- [ ] Social interaction
-- [ ] Utility AI
-
-Eventually goblins will choose between competing desires:
-
-```text
-Mining Job     48 utility
-Eat            91 utility
-Sleep          31 utility
-Socialize      15 utility
-
-→ Eat
-```
-
----
-
-## Phase 6 — Fortress Systems
-
-- [ ] Construction
-- [ ] Buildings
-- [ ] Doors
-- [ ] Furniture
-- [ ] Rooms
-- [ ] Ownership
-- [ ] Zones
-- [ ] Farming
-- [ ] Food storage
+- [ ] Health
+- [ ] Injuries
 - [ ] Equipment
-- [ ] Weapons
-- [ ] Combat
+
+## Phase 9 — World Simulation
+
+- [ ] Biomes
+- [ ] Climate
+- [ ] Rivers
+- [ ] Weather
+- [ ] Wildlife
+- [ ] Farming
+- [ ] Civilizations
+- [ ] Settlements
+- [ ] Trade
+- [ ] Diplomacy
+- [ ] Warfare
+- [ ] Historical figures
+- [ ] Artifacts
+- [ ] Procedural history
 
 ---
 
-## Phase 7 — Persistence
+# Design Philosophy
 
-- [ ] Save files
-- [ ] Load files
-- [ ] Save schema version
-- [ ] Entity serialization
-- [ ] Map serialization
-- [ ] Job serialization
-- [ ] RNG state serialization
-- [ ] Save migration support
+ASCII Universe is intended to prioritize **simulation over scripting**.
+
+The target is not:
+
+```text
+Goblin performs canned event A
+then canned event B
+then canned event C
+```
+
+The target is:
+
+```text
+World State
+    +
+Agent Capabilities
+    +
+Needs
+    +
+Jobs
+    +
+Resources
+    +
+Environment
+    ↓
+Emergent Behavior
+```
+
+A miner should mine because mining work exists.
+
+A hauler should move iron because an item exists and a valid stockpile needs it.
+
+A woodcutter should cut a tree because the player requested wood.
+
+Eventually, settlements, shortages, accidents, relationships, conflicts, and history should emerge from the same underlying systems.
 
 ---
 
-## Phase 8 — Procedural World Generation
+# Development State
 
-Planned pipeline:
+ASCII Universe is under active development.
 
-```text
-World Seed
-    ↓
-Elevation
-    ↓
-Sea Level
-    ↓
-Temperature
-    ↓
-Rainfall
-    ↓
-Drainage
-    ↓
-Rivers
-    ↓
-Lakes
-    ↓
-Erosion
-    ↓
-Geology
-    ↓
-Biomes
-    ↓
-Flora
-    ↓
-Fauna
-    ↓
-Civilization Sites
-```
+Many systems are intentionally still simple and exist primarily to establish the correct architecture before additional complexity is added.
 
----
-
-## Phase 9 — Z Levels
-
-Current position:
-
-```cpp
-struct Position
-{
-    int x;
-    int y;
-};
-```
-
-Future:
-
-```cpp
-struct Position
-{
-    int x;
-    int y;
-    int z;
-};
-```
-
-Allowing:
+Current priorities are:
 
 ```text
-Z +2    Sky
-Z +1    Tree Canopy / Hills
-Z  0    Surface
-Z -1    Soil
-Z -2    Stone
-Z -3    Mineral Layers
-Z -4    Caverns
-Z -5    Deep Underground
+Playable fortress controls
+        ↓
+Construction
+        ↓
+Workshops / production
+        ↓
+Goblin needs and skills
+        ↓
+Larger world simulation
+        ↓
+Civilizations and history
 ```
 
----
+The project is not currently intended to be a finished or balanced game.
 
-## Phase 10 — World History
-
-World generation will eventually continue beyond terrain generation.
-
-```text
-Generate World
-      ↓
-Generate Species
-      ↓
-Generate Civilizations
-      ↓
-Generate Settlements
-      ↓
-Generate Historical Figures
-      ↓
-Simulate Population
-      ↓
-Simulate Expansion
-      ↓
-Simulate Politics
-      ↓
-Simulate Trade
-      ↓
-Simulate Wars
-      ↓
-Simulate Collapse
-      ↓
-Generate Ruins
-      ↓
-Player Enters World
-```
-
-Historical events will exist as simulation data rather than prewritten lore.
-
-Example:
-
-```text
-YEAR 74
-
-Khar Molun was founded by
-King Varak Ironhand.
-
-
-YEAR 102
-
-The Ashen Tribes declared war
-on Khar Molun.
-
-
-YEAR 108
-
-The Battle of Red Ford occurred.
-
-
-YEAR 114
-
-Khar Molun fell.
-
-
-YEAR 151
-
-Mazra founded the Ashen Empire.
-```
-
-The player may later discover:
-
-```text
-Ruins of Khar Molun
-```
-
-because Khar Molun actually existed and was destroyed during world simulation.
-
----
-
-# Long-Term Goal
-
-The final goal is not simply to create an ASCII roguelike.
-
-It is to build a persistent simulation capable of operating at multiple scales:
-
-```text
-Universe
-   ↓
-Galaxy
-   ↓
-Star System
-   ↓
-Planet
-   ↓
-Continent
-   ↓
-Region
-   ↓
-Civilization
-   ↓
-Settlement
-   ↓
-Fortress
-   ↓
-Individual Agent
-```
-
-Nearby entities can eventually run detailed simulations while distant locations use increasingly abstract simulation models.
-
-This should allow a large world to remain alive without requiring every individual entity in the universe to run full-resolution AI every simulation tick.
-
----
-
-# Development Philosophy
-
-## Simulation First
-
-Gameplay systems should modify simulation state.
-
-The renderer should only display that state.
-
-## Autonomous Agents
-
-The player creates intent:
-
-```text
-Mine this.
-Build this.
-Store this.
-Craft this.
-```
-
-Agents determine how to execute that intent.
-
-## Determinism
-
-The same world seed and sequence of player commands should produce reproducible simulation behavior wherever practical.
-
-## Emergent Systems
-
-Complex events should emerge from interacting systems rather than depending entirely on scripted sequences.
-
-## Incremental Complexity
-
-A system should work end-to-end before another major simulation layer is added.
-
-For example, mining was completed as:
-
-```text
-Designation
-    ↓
-Job
-    ↓
-Assignment
-    ↓
-Path
-    ↓
-Movement
-    ↓
-Execution
-```
-
-before introducing items or hauling.
-
-The next system will extend that existing chain instead of bypassing it.
-
----
-
-# Current Status
-
-```text
-CORE ENGINE
-[✓] Map
-[✓] ASCII framebuffer renderer
-[✓] ECS
-[✓] Entities
-[✓] Fixed timestep
-[✓] Deterministic RNG
-
-NAVIGATION
-[✓] A*
-[✓] Obstacle avoidance
-[✓] Movement paths
-[✓] Autonomous movement
-
-WORK SYSTEM
-[✓] Designations
-[✓] Designation lifecycle
-[✓] Duplicate prevention
-[✓] Job board
-[✓] Job states
-[✓] Job assignment
-[✓] Profession filtering
-
-PROFESSIONS
-[✓] Miner
-[✓] Hauler
-
-MINING
-[✓] Mining jobs
-[✓] Adjacent work-position selection
-[✓] Pathfinding to mining locations
-[✓] Autonomous mining
-[✓] Wall → floor mutation
-
-LOGISTICS
-[ ] Items
-[ ] Stone drops
-[ ] Stockpiles
-[ ] Hauling
-[ ] Reservations
-
-WORLD
-[ ] Procedural terrain
-[ ] Biomes
-[ ] Geology
-[ ] Z levels
-[ ] Civilizations
-[ ] Historical simulation
-
-PERSISTENCE
-[ ] Save
-[ ] Load
-```
-
----
-
-# Next Milestone
-
-The next milestone is the first complete resource logistics loop:
-
-```text
-Uru mines wall
-      ↓
-Stone appears
-      ↓
-Stone needs storage
-      ↓
-Haul job generated
-      ↓
-Kesh claims job
-      ↓
-Kesh walks to stone
-      ↓
-Kesh picks it up
-      ↓
-Kesh walks to stockpile
-      ↓
-Kesh drops stone
-      ↓
-Stone becomes stockpiled
-```
-
-Once that works, ASCII Universe will have its first complete **resource economy loop** rather than only a work-order system.
-
----
-
-# Inspiration
-
-ASCII Universe is inspired by:
-
-- Dwarf Fortress
-- Goblin Camp
-- KeeperRL
-- Traditional roguelikes
-- Colony simulation games
-
-ASCII Universe is an independent project and is not affiliated with those games or their developers.
-
----
-
-# Status
-
-**Early development — autonomous mining milestone complete.**
-
-Current focus:
-
-**Items → mined resources → stockpiles → autonomous hauling.**
+It is the foundation of one.

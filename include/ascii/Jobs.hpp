@@ -18,6 +18,12 @@ using JobId =
 enum class JobType
 {
     Mine,
+
+    DigDown,
+    DigUp,
+
+    FellTree,
+
     Haul
 };
 
@@ -43,7 +49,6 @@ struct Job
         JobType::Mine
     };
 
-    // Generic/mining data.
     Position target{};
 
     Position workPosition{};
@@ -60,7 +65,7 @@ struct Job
         entt::null
     };
 
-    // Hauling data.
+    // Hauling
     entt::entity item{
         entt::null
     };
@@ -150,7 +155,9 @@ public:
     {
         for (auto& job : jobs_)
         {
-            if (job.id == id)
+            if (
+                job.id == id
+            )
             {
                 return &job;
             }
@@ -168,7 +175,9 @@ public:
             jobs_
         )
         {
-            if (job.id == id)
+            if (
+                job.id == id
+            )
             {
                 return &job;
             }
@@ -236,7 +245,6 @@ public:
         return result;
     }
 
-    // Used by SaveManager when loading.
     void restore(
         std::vector<Job> jobs
     )

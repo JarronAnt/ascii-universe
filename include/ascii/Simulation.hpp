@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Designations.hpp"
 #include "Events.hpp"
 #include "GameMap.hpp"
 #include "Items.hpp"
@@ -38,33 +39,39 @@ public:
     Simulation(
         int width,
         int height,
+        int depth,
         std::uint64_t seed
     );
 
     int advance(
-        std::chrono::nanoseconds elapsed
+        std::chrono::nanoseconds
+            elapsed
     );
 
     void step();
-
-    // ==================================================
-    // Player/world commands
-    // ==================================================
 
     entt::entity designateMine(
         Position position
     );
 
+    entt::entity designateDigDown(
+        Position position
+    );
+
+    entt::entity designateDigUp(
+        Position position
+    );
+
+    entt::entity designateFellTree(
+        Position position
+    );
+
     entt::entity createStockpile(
-        Position topLeft,
-        Position bottomRight,
+        Position min,
+        Position max,
         std::vector<ItemType>
             accepts
     );
-
-    // ==================================================
-    // Persistence support
-    // ==================================================
 
     [[nodiscard]]
     std::uint64_t worldSeed() const;
@@ -74,22 +81,21 @@ public:
         std::uint64_t rngState
     );
 
-    // ==================================================
-    // Resources
-    // ==================================================
-
     GameMap& map();
 
-    const GameMap& map() const;
+    const GameMap&
+        map() const;
 
-    entt::registry& registry();
+    entt::registry&
+        registry();
 
     const entt::registry&
         registry() const;
 
     Random& random();
 
-    const Random& random() const;
+    const Random&
+        random() const;
 
     JobBoard& jobBoard();
 
@@ -104,17 +110,29 @@ public:
     bool hasOutstandingWork();
 
 private:
+    entt::entity
+    createDesignation(
+        Position position,
+        DesignationType type,
+        char glyphCharacter,
+        TerminalColor color
+    );
+
     GameMap map_;
 
-    entt::registry registry_;
+    entt::registry
+        registry_;
 
     Random random_;
 
-    std::uint64_t worldSeed_{};
+    std::uint64_t
+        worldSeed_{};
 
-    Pathfinder pathfinder_;
+    Pathfinder
+        pathfinder_;
 
-    JobBoard jobBoard_;
+    JobBoard
+        jobBoard_;
 
     EventQueue<ItemSpawnEvent>
         itemSpawnEvents_;
@@ -125,7 +143,8 @@ private:
     EventQueue<ItemDropEvent>
         itemDropEvents_;
 
-    SimulationTime time_;
+    SimulationTime
+        time_;
 
     std::chrono::nanoseconds
         accumulator_{0};

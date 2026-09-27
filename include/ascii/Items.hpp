@@ -1,15 +1,21 @@
 #pragma once
 
+#include "Material.hpp"
+
 #include <entt/entt.hpp>
 
 #include <cstdint>
+#include <optional>
 
 namespace ascii
 {
 
 enum class ItemType
 {
-    Stone
+    Stone,
+    Ore,
+    Soil,
+    Log
 };
 
 struct Item
@@ -18,13 +24,13 @@ struct Item
         ItemType::Stone
     };
 
+    MaterialType material{
+        MaterialType::Granite
+    };
+
     std::uint32_t weight{1};
 };
 
-// Marker component.
-//
-// Only entities with Carriable can generate
-// hauling jobs.
 struct Carriable
 {
 };
@@ -51,13 +57,48 @@ struct ItemState
     };
 };
 
-// Added to a goblin while it is physically
-// carrying an item.
 struct CarryingItem
 {
     entt::entity item{
         entt::null
     };
 };
+
+[[nodiscard]]
+inline std::optional<ItemType>
+itemTypeForMaterial(
+    MaterialType material
+)
+{
+    if (
+        isSoilMaterial(material)
+    )
+    {
+        return ItemType::Soil;
+    }
+
+    if (
+        isOreMaterial(material)
+    )
+    {
+        return ItemType::Ore;
+    }
+
+    if (
+        isStoneMaterial(material)
+    )
+    {
+        return ItemType::Stone;
+    }
+
+    if (
+        isWoodMaterial(material)
+    )
+    {
+        return ItemType::Log;
+    }
+
+    return std::nullopt;
+}
 
 }

@@ -19,10 +19,6 @@ struct Goblin
 {
 };
 
-// ==================================================
-// Rendering
-// ==================================================
-
 struct Glyph
 {
     char character{'?'};
@@ -44,15 +40,9 @@ struct Hauler
 {
 };
 
-// Future:
-//
-// struct Builder {};
-// struct Farmer {};
-// struct Smith {};
-// struct Carpenter {};
-// struct Cook {};
-// struct Doctor {};
-// struct Soldier {};
+struct Woodcutter
+{
+};
 
 // ==================================================
 // Movement
@@ -60,7 +50,8 @@ struct Hauler
 
 struct MovementPath
 {
-    std::vector<Position> nodes;
+    std::vector<Position>
+        nodes;
 
     std::size_t nextStep{0};
 

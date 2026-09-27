@@ -1,14 +1,18 @@
 #pragma once
 
-namespace ascii {
-   
-    //X, Y Pos value initalized at 0 
-    // TODO: add Z-axis
-    struct Position {
-        int x{};
-        int y{};
+namespace ascii
+{
 
-        friend bool operator==(const Position&,const Position&) = default;
-    };
+struct Position
+{
+    int x{};
+    int y{};
+    int z{};
+
+    friend bool operator==(
+        const Position&,
+        const Position&
+    ) = default;
+};
 
 }

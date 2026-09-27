@@ -3,6 +3,14 @@
 namespace ascii
 {
 
+enum class DesignationType
+{
+    Mine,
+    DigDown,
+    DigUp,
+    FellTree
+};
+
 enum class DesignationState
 {
     Active,
@@ -10,16 +18,11 @@ enum class DesignationState
     Consumed
 };
 
-// Marker component.
-//
-// An entity with:
-//     Position
-//     MineDesignation
-//     DesignationLifecycle
-//
-// represents a player mining designation.
-struct MineDesignation
+struct Designation
 {
+    DesignationType type{
+        DesignationType::Mine
+    };
 };
 
 struct DesignationLifecycle

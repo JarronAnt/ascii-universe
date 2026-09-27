@@ -1,12 +1,16 @@
 #pragma once
 
 #include "ascii/Components.hpp"
+#include "ascii/GameMap.hpp"
 #include "ascii/Jobs.hpp"
+#include "ascii/Pathfinder.hpp"
 #include "ascii/Position.hpp"
 
 #include <entt/entt.hpp>
 
 #include <algorithm>
+#include <array>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -14,7 +18,8 @@ namespace ascii::systems
 {
 
 inline void sortEntities(
-    std::vector<entt::entity>& entities
+    std::vector<entt::entity>&
+        entities
 )
 {
     std::sort(
@@ -26,36 +31,134 @@ inline void sortEntities(
         )
         {
             return
-                entt::to_integral(first)
+                entt::to_integral(
+                    first
+                )
                 <
-                entt::to_integral(second);
+                entt::to_integral(
+                    second
+                );
         }
     );
 }
 
-inline bool isAdjacent(
+inline bool isAdjacentSameLevel(
     Position first,
     Position second
 )
 {
-    int dx =
-        first.x - second.x;
-
-    int dy =
-        first.y - second.y;
-
-    if (dx < 0)
+    if (
+        first.z !=
+        second.z
+    )
     {
-        dx = -dx;
+        return false;
     }
 
-    if (dy < 0)
-    {
-        dy = -dy;
-    }
+    const int dx =
+        std::abs(
+            first.x -
+            second.x
+        );
+
+    const int dy =
+        std::abs(
+            first.y -
+            second.y
+        );
 
     return
-        (dx + dy) == 1;
+        dx + dy == 1;
+}
+
+struct WorkApproach
+{
+    Position workPosition{};
+
+    std::vector<Position>
+        path;
+};
+
+inline std::optional<WorkApproach>
+findAdjacentApproach(
+    const GameMap& map,
+    const Pathfinder& pathfinder,
+    Position worker,
+    Position target
+)
+{
+    constexpr std::array<
+        Position,
+        4
+    > directions{
+        Position{0, -1, 0},
+        Position{1, 0, 0},
+        Position{0, 1, 0},
+        Position{-1, 0, 0}
+    };
+
+    std::optional<
+        WorkApproach
+    > best;
+
+    for (
+        const auto direction :
+        directions
+    )
+    {
+        const Position candidate{
+            target.x +
+                direction.x,
+
+            target.y +
+                direction.y,
+
+            target.z
+        };
+
+        if (
+            !map.inBounds(
+                candidate
+            )
+            ||
+            !map.at(
+                candidate
+            ).walkable()
+        )
+        {
+            continue;
+        }
+
+        auto path =
+            pathfinder.findPath(
+                map,
+                worker,
+                candidate
+            );
+
+        if (!path)
+        {
+            continue;
+        }
+
+        if (
+            !best
+            ||
+            path->size() <
+                best->path.size()
+        )
+        {
+            best =
+                WorkApproach{
+                    candidate,
+                    std::move(
+                        *path
+                    )
+                };
+        }
+    }
+
+    return best;
 }
 
 inline void setMovementPath(
@@ -93,7 +196,9 @@ inline void clearWorkerJob(
 )
 {
     if (
-        !registry.valid(worker)
+        !registry.valid(
+            worker
+        )
     )
     {
         return;
@@ -128,9 +233,12 @@ inline void hideDesignation(
 )
 {
     if (
-        entity == entt::null
+        entity ==
+            entt::null
         ||
-        !registry.valid(entity)
+        !registry.valid(
+            entity
+        )
     )
     {
         return;

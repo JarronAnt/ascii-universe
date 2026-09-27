@@ -1,10 +1,12 @@
 #pragma once
 
 #include "Items.hpp"
+#include "Material.hpp"
 #include "Position.hpp"
 
 #include <entt/entt.hpp>
 
+#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -13,17 +15,19 @@ namespace ascii
 
 enum class ItemSource
 {
-    Mining
+    Mining,
+    Digging,
+    Felling
 };
-
-// --------------------------------------------------
-// Item events
-// --------------------------------------------------
 
 struct ItemSpawnEvent
 {
     ItemType itemType{
         ItemType::Stone
+    };
+
+    MaterialType material{
+        MaterialType::Granite
     };
 
     Position position{};
@@ -61,15 +65,13 @@ struct ItemDropEvent
     Position destination{};
 };
 
-// --------------------------------------------------
-// Generic event queue
-// --------------------------------------------------
-
 template<typename Event>
 class EventQueue
 {
 public:
-    void emit(Event event)
+    void emit(
+        Event event
+    )
     {
         events_.push_back(
             std::move(event)
@@ -90,7 +92,7 @@ public:
 
     std::vector<Event> take()
     {
-        std::vector<Event> result =
+        auto result =
             std::move(events_);
 
         events_.clear();
@@ -99,7 +101,8 @@ public:
     }
 
 private:
-    std::vector<Event> events_;
+    std::vector<Event>
+        events_;
 };
 
 }

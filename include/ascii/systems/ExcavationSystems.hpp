@@ -10,14 +10,14 @@
 namespace ascii::systems
 {
 
-void assignMiningJobs(
+void assignExcavationJobs(
     entt::registry& registry,
     const GameMap& map,
     const Pathfinder& pathfinder,
     JobBoard& jobBoard
 );
 
-void executeMining(
+void executeExcavation(
     entt::registry& registry,
     GameMap& map,
     JobBoard& jobBoard,

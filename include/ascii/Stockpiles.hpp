@@ -15,8 +15,8 @@ namespace ascii
 
 struct StockpileBounds
 {
-    Position topLeft{};
-    Position bottomRight{};
+    Position min{};
+    Position max{};
 
     [[nodiscard]]
     bool contains(
@@ -24,10 +24,17 @@ struct StockpileBounds
     ) const
     {
         return
-            position.x >= topLeft.x &&
-            position.y >= topLeft.y &&
-            position.x <= bottomRight.x &&
-            position.y <= bottomRight.y;
+            position.x >= min.x
+            &&
+            position.y >= min.y
+            &&
+            position.z >= min.z
+            &&
+            position.x <= max.x
+            &&
+            position.y <= max.y
+            &&
+            position.z <= max.z;
     }
 };
 
@@ -35,20 +42,15 @@ struct Stockpile
 {
     StockpileBounds bounds{};
 
-    // Item filters.
-    std::vector<ItemType> accepts;
+    std::vector<ItemType>
+        accepts;
 
-    // Items currently stored here.
     std::vector<entt::entity>
         currentItems;
 
-    // Cells promised to haul jobs but which
-    // don't contain their item yet.
     std::vector<Position>
         reservedCells;
 
-    // Empty optional means unlimited except for
-    // available physical cells.
     std::optional<std::size_t>
         maxItems;
 
@@ -57,11 +59,14 @@ struct Stockpile
         ItemType type
     ) const
     {
-        return std::find(
-            accepts.begin(),
-            accepts.end(),
-            type
-        ) != accepts.end();
+        return
+            std::find(
+                accepts.begin(),
+                accepts.end(),
+                type
+            )
+            !=
+            accepts.end();
     }
 
     [[nodiscard]]

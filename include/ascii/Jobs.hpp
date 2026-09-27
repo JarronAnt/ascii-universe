@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace ascii
@@ -42,10 +43,7 @@ struct Job
         JobType::Mine
     };
 
-    // --------------------------------------------------
-    // Generic / mining data
-    // --------------------------------------------------
-
+    // Generic/mining data.
     Position target{};
 
     Position workPosition{};
@@ -62,10 +60,7 @@ struct Job
         entt::null
     };
 
-    // --------------------------------------------------
-    // Hauling data
-    // --------------------------------------------------
-
+    // Hauling data.
     entt::entity item{
         entt::null
     };
@@ -89,10 +84,6 @@ struct AssignedJob
 class JobBoard
 {
 public:
-    // --------------------------------------------------
-    // Generic / mining job
-    // --------------------------------------------------
-
     JobId add(
         JobType type,
         Position target,
@@ -113,14 +104,12 @@ public:
         job.sourceDesignation =
             sourceDesignation;
 
-        jobs_.push_back(job);
+        jobs_.push_back(
+            job
+        );
 
         return job.id;
     }
-
-    // --------------------------------------------------
-    // Hauling job
-    // --------------------------------------------------
 
     JobId addHaul(
         entt::entity item,
@@ -148,7 +137,9 @@ public:
         job.haulStage =
             HaulStage::ToItem;
 
-        jobs_.push_back(job);
+        jobs_.push_back(
+            job
+        );
 
         return job.id;
     }
@@ -191,7 +182,8 @@ public:
         return jobs_;
     }
 
-    const std::vector<Job>& jobs() const
+    const std::vector<Job>&
+    jobs() const
     {
         return jobs_;
     }
@@ -224,7 +216,8 @@ public:
         JobState state
     ) const
     {
-        std::size_t result = 0;
+        std::size_t result =
+            0;
 
         for (
             const auto& job :
@@ -233,7 +226,7 @@ public:
         {
             if (
                 job.state ==
-                state
+                    state
             )
             {
                 ++result;
@@ -243,10 +236,38 @@ public:
         return result;
     }
 
+    // Used by SaveManager when loading.
+    void restore(
+        std::vector<Job> jobs
+    )
+    {
+        jobs_ =
+            std::move(jobs);
+
+        nextId_ =
+            1;
+
+        for (
+            const auto& job :
+            jobs_
+        )
+        {
+            if (
+                job.id >=
+                nextId_
+            )
+            {
+                nextId_ =
+                    job.id + 1;
+            }
+        }
+    }
+
 private:
     JobId nextId_{1};
 
-    std::vector<Job> jobs_;
+    std::vector<Job>
+        jobs_;
 };
 
 }

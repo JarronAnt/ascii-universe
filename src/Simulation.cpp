@@ -25,13 +25,13 @@ Simulation::Simulation(
         width,
         height
       ),
-      random_(seed)
+      random_(seed),
+      worldSeed_(seed)
 {
 }
 
 int Simulation::advance(
-    std::chrono::nanoseconds
-        elapsed
+    std::chrono::nanoseconds elapsed
 )
 {
     if (
@@ -68,7 +68,7 @@ int Simulation::advance(
 void Simulation::step()
 {
     // ==================================================
-    // Intent
+    // Player intent
     // ==================================================
 
     systems::
@@ -83,7 +83,6 @@ void Simulation::step()
             jobBoard_
         );
 
-    // Existing loose resources may need jobs.
     systems::
         generateHaulJobs(
             registry_,
@@ -93,7 +92,7 @@ void Simulation::step()
         );
 
     // ==================================================
-    // Work assignment
+    // Job assignment
     // ==================================================
 
     systems::
@@ -123,7 +122,7 @@ void Simulation::step()
         );
 
     // ==================================================
-    // Work execution
+    // Work
     // ==================================================
 
     systems::
@@ -170,8 +169,6 @@ void Simulation::step()
             itemDropEvents_
         );
 
-    // Mining may have generated new resources
-    // this tick.
     systems::
         generateHaulJobs(
             registry_,
@@ -294,6 +291,28 @@ Simulation::createStockpile(
         std::move(accepts);
 
     return entity;
+}
+
+std::uint64_t
+Simulation::worldSeed() const
+{
+    return worldSeed_;
+}
+
+void Simulation::restoreRuntimeState(
+    std::uint64_t tick,
+    std::uint64_t rngState
+)
+{
+    time_.tick =
+        tick;
+
+    random_.setState(
+        rngState
+    );
+
+    accumulator_ =
+        std::chrono::nanoseconds{0};
 }
 
 GameMap& Simulation::map()

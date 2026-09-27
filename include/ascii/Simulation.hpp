@@ -42,8 +42,7 @@ public:
     );
 
     int advance(
-        std::chrono::nanoseconds
-            elapsed
+        std::chrono::nanoseconds elapsed
     );
 
     void step();
@@ -61,6 +60,18 @@ public:
         Position bottomRight,
         std::vector<ItemType>
             accepts
+    );
+
+    // ==================================================
+    // Persistence support
+    // ==================================================
+
+    [[nodiscard]]
+    std::uint64_t worldSeed() const;
+
+    void restoreRuntimeState(
+        std::uint64_t tick,
+        std::uint64_t rngState
     );
 
     // ==================================================
@@ -98,6 +109,8 @@ private:
     entt::registry registry_;
 
     Random random_;
+
+    std::uint64_t worldSeed_{};
 
     Pathfinder pathfinder_;
 

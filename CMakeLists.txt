@@ -47,6 +47,8 @@ add_executable(
 
     src/Simulation.cpp
     src/TerminalRenderer.cpp
+    src/WorldGenerator.cpp
+    src/SaveManager.cpp
 
     src/systems/DesignationSystems.cpp
     src/systems/MovementSystem.cpp

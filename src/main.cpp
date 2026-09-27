@@ -2,106 +2,318 @@
 #include "ascii/Components.hpp"
 #include "ascii/Items.hpp"
 #include "ascii/Jobs.hpp"
+#include "ascii/SaveManager.hpp"
 #include "ascii/Simulation.hpp"
 #include "ascii/Stockpiles.hpp"
 #include "ascii/TerminalRenderer.hpp"
+#include "ascii/WorldGenerator.hpp"
+
+#include <entt/entt.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
+#include <memory>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 using namespace ascii;
 
-int main()
+namespace
 {
-    constexpr std::uint64_t
-        WorldSeed =
-            123456789ULL;
 
-    // ==================================================
-    // Simulation
-    // ==================================================
+struct Options
+{
+    std::optional<
+        std::filesystem::path
+    > loadPath;
 
-    Simulation simulation{
-        40,
-        20,
-        WorldSeed
+    std::filesystem::path
+        savePath{
+            "saves/autosave.json"
+        };
+
+    bool savePathExplicit{
+        false
     };
 
-    GameMap& map =
-        simulation.map();
+    std::optional<
+        std::uint64_t
+    > seed;
 
-    entt::registry& registry =
-        simulation.registry();
+    std::optional<
+        std::uint64_t
+    > stopAfterTicks;
+};
 
-    // ==================================================
-    // Outer walls
-    // ==================================================
+void printHelp()
+{
+    std::cout
+        << "ASCII Universe\n\n"
+
+        << "Usage:\n"
+
+        << "  ./ascii_universe\n"
+
+        << "  ./ascii_universe "
+           "--seed 12345\n"
+
+        << "  ./ascii_universe "
+           "--load saves/autosave.json\n"
+
+        << "  ./ascii_universe "
+           "--seed 12345 "
+           "--save saves/test.json\n"
+
+        << "  ./ascii_universe "
+           "--seed 12345 "
+           "--save saves/test.json "
+           "--stop-after 25\n";
+}
+
+Options parseArguments(
+    int argc,
+    char** argv
+)
+{
+    Options options;
 
     for (
-        int y = 0;
-        y < map.height();
-        ++y
+        int i = 1;
+        i < argc;
+        ++i
     )
     {
-        for (
-            int x = 0;
-            x < map.width();
-            ++x
+        const std::string
+            argument =
+                argv[i];
+
+        if (
+            argument ==
+            "--help"
+        )
+        {
+            printHelp();
+
+            std::exit(0);
+        }
+
+        if (
+            argument ==
+            "--seed"
         )
         {
             if (
-                x == 0
-                ||
-                y == 0
-                ||
-                x ==
-                    map.width() - 1
-                ||
-                y ==
-                    map.height() - 1
+                i + 1 >= argc
             )
             {
-                map.at(
-                    x,
-                    y
-                ).type =
-                    TileType::Wall;
+                throw std::runtime_error(
+                    "--seed requires a number."
+                );
             }
+
+            options.seed =
+                std::stoull(
+                    argv[++i]
+                );
+
+            continue;
         }
-    }
 
-    // ==================================================
-    // Rock formation
-    // ==================================================
-
-    for (
-        int y = 5;
-        y <= 13;
-        ++y
-    )
-    {
-        for (
-            int x = 24;
-            x <= 30;
-            ++x
+        if (
+            argument ==
+            "--load"
         )
         {
-            map.at(
-                x,
-                y
-            ).type =
-                TileType::Wall;
+            if (
+                i + 1 >= argc
+            )
+            {
+                throw std::runtime_error(
+                    "--load requires a path."
+                );
+            }
+
+            options.loadPath =
+                std::filesystem::path{
+                    argv[++i]
+                };
+
+            continue;
+        }
+
+        if (
+            argument ==
+            "--save"
+        )
+        {
+            if (
+                i + 1 >= argc
+            )
+            {
+                throw std::runtime_error(
+                    "--save requires a path."
+                );
+            }
+
+            options.savePath =
+                std::filesystem::path{
+                    argv[++i]
+                };
+
+            options.
+                savePathExplicit =
+                    true;
+
+            continue;
+        }
+
+        if (
+            argument ==
+            "--stop-after"
+        )
+        {
+            if (
+                i + 1 >= argc
+            )
+            {
+                throw std::runtime_error(
+                    "--stop-after requires "
+                    "a tick count."
+                );
+            }
+
+            options.stopAfterTicks =
+                std::stoull(
+                    argv[++i]
+                );
+
+            continue;
+        }
+
+        throw std::runtime_error(
+            "Unknown argument: "
+            +
+            argument
+        );
+    }
+
+    if (
+        options.loadPath
+        &&
+        !options.savePathExplicit
+    )
+    {
+        options.savePath =
+            *options.loadPath;
+    }
+
+    return options;
+}
+
+std::uint64_t
+generateNewSeed()
+{
+    const auto now =
+        std::chrono::
+            high_resolution_clock::
+            now().
+            time_since_epoch().
+            count();
+
+    return static_cast<
+        std::uint64_t
+    >(now);
+}
+
+entt::entity
+findGoblinByName(
+    entt::registry& registry,
+    std::string_view name
+)
+{
+    auto view =
+        registry.view<
+            Goblin,
+            Name
+        >();
+
+    for (auto entity : view)
+    {
+        if (
+            view.get<
+                Name
+            >(entity).value
+            ==
+            name
+        )
+        {
+            return entity;
         }
     }
 
-    // ==================================================
-    // Uru — Miner
-    // ==================================================
+    return entt::null;
+}
+
+entt::entity
+findFirstStockpile(
+    entt::registry& registry
+)
+{
+    auto view =
+        registry.view<
+            Stockpile
+        >();
+
+    for (auto entity : view)
+    {
+        return entity;
+    }
+
+    return entt::null;
+}
+
+std::unique_ptr<Simulation>
+createNewWorld(
+    std::uint64_t seed
+)
+{
+    constexpr int
+        WorldWidth =
+            50;
+
+    constexpr int
+        WorldHeight =
+            24;
+
+    auto simulation =
+        std::make_unique<
+            Simulation
+        >(
+            WorldWidth,
+            WorldHeight,
+            seed
+        );
+
+    auto& registry =
+        simulation->
+            registry();
+
+    const auto layout =
+        WorldGenerator::generate(
+            simulation->map(),
+            seed
+        );
+
+    // ==============================================
+    // Miner
+    // ==============================================
 
     const auto miner =
         registry.create();
@@ -128,10 +340,7 @@ int main()
         >(miner);
 
     minerPosition =
-        Position{
-            5,
-            8
-        };
+        layout.minerSpawn;
 
     auto& minerGlyph =
         registry.emplace<
@@ -145,9 +354,9 @@ int main()
         TerminalColor::
             BrightGreen;
 
-    // ==================================================
-    // Kesh — Hauler
-    // ==================================================
+    // ==============================================
+    // Hauler
+    // ==============================================
 
     const auto hauler =
         registry.create();
@@ -174,10 +383,7 @@ int main()
         >(hauler);
 
     haulerPosition =
-        Position{
-            5,
-            12
-        };
+        layout.haulerSpawn;
 
     auto& haulerGlyph =
         registry.emplace<
@@ -191,372 +397,518 @@ int main()
         TerminalColor::
             BrightYellow;
 
-    // ==================================================
+    // ==============================================
     // Stone stockpile
-    // ==================================================
+    // ==============================================
 
-    const auto stoneStockpile =
-        simulation.createStockpile(
-            Position{
-                3,
-                2
-            },
+    simulation->
+        createStockpile(
+            layout.
+                stockpileTopLeft,
 
-            Position{
-                9,
-                5
-            },
+            layout.
+                stockpileBottomRight,
 
             std::vector<ItemType>{
                 ItemType::Stone
             }
         );
 
-    if (
-        stoneStockpile ==
-            entt::null
+    // ==============================================
+    // Initial mining work
+    // ==============================================
+
+    for (
+        const auto target :
+        layout.miningTargets
     )
     {
-        std::cerr
-            << "Failed to create "
-               "stockpile.\n";
-
-        return 1;
+        simulation->
+            designateMine(
+                target
+            );
     }
 
-    // ==================================================
-    // Mining designations
-    // ==================================================
+    return simulation;
+}
 
-    simulation.designateMine(
-        Position{
-            24,
-            7
-        }
-    );
+}
 
-    simulation.designateMine(
-        Position{
-            24,
-            8
-        }
-    );
+int main(
+    int argc,
+    char** argv
+)
+{
+    try
+    {
+        const Options options =
+            parseArguments(
+                argc,
+                argv
+            );
 
-    simulation.designateMine(
-        Position{
-            24,
-            9
-        }
-    );
+        std::unique_ptr<
+            Simulation
+        > simulation;
 
-    simulation.designateMine(
-        Position{
-            24,
-            10
-        }
-    );
+        bool loaded =
+            false;
 
-    // Deliberate duplicate.
-    simulation.designateMine(
-        Position{
-            24,
-            8
-        }
-    );
-
-    // ==================================================
-    // Renderer
-    // ==================================================
-
-    TerminalRenderer renderer;
-
-    const auto buildHud =
-        [&](
-            bool completed
+        if (
+            options.loadPath
         )
         {
-            std::size_t groundItems =
-                0;
+            simulation =
+                SaveManager::load(
+                    *options.loadPath
+                );
 
-            std::size_t carriedItems =
-                0;
+            loaded =
+                true;
+        }
+        else
+        {
+            const std::uint64_t seed =
+                options.seed.
+                    value_or(
+                        generateNewSeed()
+                    );
 
-            std::size_t stockpiledItems =
-                0;
+            simulation =
+                createNewWorld(
+                    seed
+                );
+        }
 
-            auto itemView =
-                registry.view<
-                    Item,
-                    ItemState
-                >();
+        auto& map =
+            simulation->map();
 
-            for (
-                auto entity :
-                itemView
+        auto& registry =
+            simulation->registry();
+
+        const auto miner =
+            findGoblinByName(
+                registry,
+                "Uru"
+            );
+
+        const auto hauler =
+            findGoblinByName(
+                registry,
+                "Kesh"
+            );
+
+        const auto stockpileEntity =
+            findFirstStockpile(
+                registry
+            );
+
+        if (
+            miner == entt::null
+            ||
+            hauler == entt::null
+            ||
+            stockpileEntity ==
+                entt::null
+        )
+        {
+            throw std::runtime_error(
+                "World is missing expected "
+                "demo entities."
+            );
+        }
+
+        TerminalRenderer renderer;
+
+        const auto buildHud =
+            [&](
+                bool completed
             )
             {
-                const auto& state =
-                    itemView.get<
-                        ItemState
-                    >(entity);
+                std::size_t
+                    groundItems =
+                        0;
 
-                switch (
-                    state.location
+                std::size_t
+                    carriedItems =
+                        0;
+
+                std::size_t
+                    stockpiledItems =
+                        0;
+
+                auto itemView =
+                    registry.view<
+                        Item,
+                        ItemState
+                    >();
+
+                for (
+                    auto entity :
+                    itemView
                 )
                 {
-                    case ItemLocation::
-                        OnGround:
-                        ++groundItems;
-                        break;
+                    const auto& state =
+                        itemView.get<
+                            ItemState
+                        >(entity);
 
-                    case ItemLocation::
-                        Carried:
-                        ++carriedItems;
-                        break;
+                    switch (
+                        state.location
+                    )
+                    {
+                        case
+                            ItemLocation::
+                                OnGround:
 
-                    case ItemLocation::
-                        Stockpiled:
-                        ++stockpiledItems;
-                        break;
+                            ++groundItems;
+                            break;
+
+                        case
+                            ItemLocation::
+                                Carried:
+
+                            ++carriedItems;
+                            break;
+
+                        case
+                            ItemLocation::
+                                Stockpiled:
+
+                            ++stockpiledItems;
+                            break;
+                    }
                 }
-            }
 
-            const JobBoard& jobs =
-                simulation.jobBoard();
+                const auto& jobs =
+                    simulation->
+                        jobBoard();
 
-            const auto&
-                currentMinerPosition =
+                const auto& minerPos =
                     registry.get<
                         Position
                     >(miner);
 
-            const auto&
-                currentHaulerPosition =
+                const auto& haulerPos =
                     registry.get<
                         Position
                     >(hauler);
 
-            const auto& stockpile =
-                registry.get<
-                    Stockpile
-                >(
-                    stoneStockpile
-                );
+                const auto& stockpile =
+                    registry.get<
+                        Stockpile
+                    >(
+                        stockpileEntity
+                    );
 
-            std::vector<std::string>
-                lines;
+                std::vector<
+                    std::string
+                > lines;
 
-            lines.push_back(
-                "ASCII Universe | Tick "
-                +
-                std::to_string(
-                    simulation.
-                        time().tick
-                )
-            );
-
-            lines.push_back(
-                "Seed: "
-                +
-                std::to_string(
-                    WorldSeed
-                )
-            );
-
-            lines.push_back(
-                "Jobs A:"
-                +
-                std::to_string(
-                    jobs.count(
-                        JobState::
-                            Available
-                    )
-                )
-                +
-                " X:"
-                +
-                std::to_string(
-                    jobs.count(
-                        JobState::
-                            Assigned
-                    )
-                )
-                +
-                " C:"
-                +
-                std::to_string(
-                    jobs.count(
-                        JobState::
-                            Complete
-                    )
-                )
-            );
-
-            lines.push_back(
-                "Items ground:"
-                +
-                std::to_string(
-                    groundItems
-                )
-                +
-                " carried:"
-                +
-                std::to_string(
-                    carriedItems
-                )
-                +
-                " stored:"
-                +
-                std::to_string(
-                    stockpiledItems
-                )
-            );
-
-            lines.push_back(
-                "Stockpile reserved: "
-                +
-                std::to_string(
-                    stockpile.
-                        reservedCells.
-                        size()
-                )
-            );
-
-            lines.push_back(
-                "Uru  Miner  ("
-                +
-                std::to_string(
-                    currentMinerPosition.x
-                )
-                +
-                ","
-                +
-                std::to_string(
-                    currentMinerPosition.y
-                )
-                +
-                ")"
-            );
-
-            lines.push_back(
-                "Kesh Hauler ("
-                +
-                std::to_string(
-                    currentHaulerPosition.x
-                )
-                +
-                ","
-                +
-                std::to_string(
-                    currentHaulerPosition.y
-                )
-                +
-                ")"
-            );
-
-            if (
-                registry.all_of<
-                    CarryingItem
-                >(hauler)
-            )
-            {
                 lines.push_back(
-                    "Kesh: carrying stone"
+                    "ASCII Universe | Tick "
+                    +
+                    std::to_string(
+                        simulation->
+                            time().tick
+                    )
                 );
-            }
-            else
-            {
-                lines.push_back(
-                    "Kesh: empty handed"
-                );
-            }
 
-            lines.push_back(
-                completed
+                lines.push_back(
+                    std::string{
+                        loaded
+                        ?
+                        "Loaded world"
+                        :
+                        "Generated world"
+                    }
+                    +
+                    " | Seed "
+                    +
+                    std::to_string(
+                        simulation->
+                            worldSeed()
+                    )
+                );
+
+                lines.push_back(
+                    "Jobs A:"
+                    +
+                    std::to_string(
+                        jobs.count(
+                            JobState::
+                                Available
+                        )
+                    )
+                    +
+                    " X:"
+                    +
+                    std::to_string(
+                        jobs.count(
+                            JobState::
+                                Assigned
+                        )
+                    )
+                    +
+                    " C:"
+                    +
+                    std::to_string(
+                        jobs.count(
+                            JobState::
+                                Complete
+                        )
+                    )
+                );
+
+                lines.push_back(
+                    "Items ground:"
+                    +
+                    std::to_string(
+                        groundItems
+                    )
+                    +
+                    " carried:"
+                    +
+                    std::to_string(
+                        carriedItems
+                    )
+                    +
+                    " stored:"
+                    +
+                    std::to_string(
+                        stockpiledItems
+                    )
+                );
+
+                lines.push_back(
+                    "Reserved cells: "
+                    +
+                    std::to_string(
+                        stockpile.
+                            reservedCells.
+                            size()
+                    )
+                );
+
+                lines.push_back(
+                    "Uru  Miner  ("
+                    +
+                    std::to_string(
+                        minerPos.x
+                    )
+                    +
+                    ","
+                    +
+                    std::to_string(
+                        minerPos.y
+                    )
+                    +
+                    ")"
+                );
+
+                lines.push_back(
+                    "Kesh Hauler ("
+                    +
+                    std::to_string(
+                        haulerPos.x
+                    )
+                    +
+                    ","
+                    +
+                    std::to_string(
+                        haulerPos.y
+                    )
+                    +
+                    ")"
+                );
+
+                lines.push_back(
+                    "Save: "
+                    +
+                    options.
+                        savePath.
+                        string()
+                );
+
+                lines.push_back(
+                    completed
                     ?
                     "Status: COMPLETE"
                     :
                     "Status: RUNNING"
-            );
-
-            return lines;
-        };
-
-    renderer.render(
-        map,
-        registry,
-        buildHud(false)
-    );
-
-    // ==================================================
-    // Fixed timestep loop
-    // ==================================================
-
-    using Clock =
-        std::chrono::steady_clock;
-
-    auto previousTime =
-        Clock::now();
-
-    bool running =
-        true;
-
-    while (running)
-    {
-        const auto currentTime =
-            Clock::now();
-
-        const auto elapsed =
-            std::chrono::
-                duration_cast<
-                    std::chrono::
-                        nanoseconds
-                >(
-                    currentTime -
-                    previousTime
                 );
 
-        previousTime =
-            currentTime;
+                return lines;
+            };
 
-        const int ticksExecuted =
-            simulation.advance(
-                elapsed
-            );
+        bool complete =
+            !simulation->
+                hasOutstandingWork();
 
-        if (
-            ticksExecuted > 0
-        )
+        renderer.render(
+            map,
+            registry,
+            buildHud(
+                complete
+            )
+        );
+
+        using Clock =
+            std::chrono::
+                steady_clock;
+
+        auto previousTime =
+            Clock::now();
+
+        const std::uint64_t
+            startingTick =
+                simulation->
+                    time().tick;
+
+        std::uint64_t
+            lastAutosaveTick =
+                startingTick;
+
+        bool stoppedEarly =
+            false;
+
+        while (!complete)
         {
-            const bool complete =
-                !simulation.
-                    hasOutstandingWork();
+            const auto currentTime =
+                Clock::now();
 
-            renderer.render(
-                map,
-                registry,
-                buildHud(
-                    complete
-                )
-            );
+            const auto elapsed =
+                std::chrono::
+                    duration_cast<
+                        std::chrono::
+                            nanoseconds
+                    >(
+                        currentTime -
+                        previousTime
+                    );
 
-            if (complete)
+            previousTime =
+                currentTime;
+
+            const int ticksExecuted =
+                simulation->
+                    advance(
+                        elapsed
+                    );
+
+            if (
+                ticksExecuted > 0
+            )
             {
-                running =
-                    false;
+                complete =
+                    !simulation->
+                        hasOutstandingWork();
+
+                renderer.render(
+                    map,
+                    registry,
+                    buildHud(
+                        complete
+                    )
+                );
+
+                // Autosave every 25 simulation ticks.
+                if (
+                    simulation->
+                        time().tick
+                    >=
+                    lastAutosaveTick + 25
+                )
+                {
+                    SaveManager::save(
+                        *simulation,
+                        options.savePath
+                    );
+
+                    lastAutosaveTick =
+                        simulation->
+                            time().tick;
+                }
+
+                if (
+                    options.
+                        stopAfterTicks
+                    &&
+                    simulation->
+                        time().tick
+                    >=
+                    startingTick
+                    +
+                    *options.
+                        stopAfterTicks
+                )
+                {
+                    SaveManager::save(
+                        *simulation,
+                        options.savePath
+                    );
+
+                    stoppedEarly =
+                        true;
+
+                    break;
+                }
             }
+
+            std::this_thread::
+                sleep_for(
+                    std::chrono::
+                        milliseconds{
+                            1
+                        }
+                );
         }
 
-        std::this_thread::
-            sleep_for(
-                std::chrono::
-                    milliseconds{
-                        1
-                    }
-            );
+        // Always save final/current state.
+        SaveManager::save(
+            *simulation,
+            options.savePath
+        );
+
+        renderer.render(
+            map,
+            registry,
+            buildHud(
+                complete
+            )
+        );
+
+        renderer.finish();
+
+        if (stoppedEarly)
+        {
+            std::cout
+                << "Saved after "
+                << *options.
+                    stopAfterTicks
+                << " additional ticks.\n";
+        }
+        else
+        {
+            std::cout
+                << "World saved to "
+                << options.
+                    savePath.
+                    string()
+                << '\n';
+        }
+
+        return 0;
     }
+    catch (
+        const std::exception& error
+    )
+    {
+        std::cerr
+            << "Fatal error: "
+            << error.what()
+            << '\n';
 
-    renderer.finish();
-
-    return 0;
+        return 1;
+    }
 }

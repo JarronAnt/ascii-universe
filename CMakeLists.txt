@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     ascii_universe
-    VERSION 0.2.0
+    VERSION 0.3.0
     LANGUAGES CXX
 )
 
@@ -12,6 +12,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 
+# ==================================================
+# EnTT
+# ==================================================
+
 FetchContent_Declare(
     EnTT
     GIT_REPOSITORY https://github.com/skypjack/entt.git
@@ -19,6 +23,10 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(EnTT)
+
+# ==================================================
+# nlohmann/json
+# ==================================================
 
 FetchContent_Declare(
     json
@@ -28,14 +36,34 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(json)
 
+# ==================================================
+# SDL3
+#
+# macOS:
+#   brew install sdl3
+#
+# Arch/CachyOS:
+#   sudo pacman -S sdl3
+# ==================================================
+
+find_package(
+    SDL3
+    REQUIRED
+    CONFIG
+    COMPONENTS SDL3
+)
+
+# ==================================================
+# Executable
+# ==================================================
+
 add_executable(
     ascii_universe
 
     src/main.cpp
 
     src/Simulation.cpp
-    src/TerminalRenderer.cpp
-    src/TerminalInput.cpp
+    src/SDLFrontend.cpp
     src/WorldGenerator.cpp
     src/SaveManager.cpp
 
@@ -60,6 +88,7 @@ target_link_libraries(
     PRIVATE
         EnTT::EnTT
         nlohmann_json::nlohmann_json
+        SDL3::SDL3
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

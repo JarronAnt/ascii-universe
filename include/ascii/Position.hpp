@@ -9,6 +9,6 @@ namespace ascii {
         int y{};
 
         friend bool operator==(const Position&,const Position&) = default;
-    }
+    };
 
 }

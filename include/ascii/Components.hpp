@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Color.hpp"
 #include "Position.hpp"
 
 #include <cstddef>
@@ -18,14 +19,22 @@ struct Goblin
 {
 };
 
+// ==================================================
+// Rendering
+// ==================================================
+
 struct Glyph
 {
     char character{'?'};
+
+    TerminalColor color{
+        TerminalColor::White
+    };
 };
 
-// --------------------------------------------------
+// ==================================================
 // Professions
-// --------------------------------------------------
+// ==================================================
 
 struct Miner
 {
@@ -35,18 +44,19 @@ struct Hauler
 {
 };
 
-// Later:
+// Future:
 //
 // struct Builder {};
 // struct Farmer {};
 // struct Smith {};
 // struct Carpenter {};
+// struct Cook {};
 // struct Doctor {};
 // struct Soldier {};
 
-// --------------------------------------------------
+// ==================================================
 // Movement
-// --------------------------------------------------
+// ==================================================
 
 struct MovementPath
 {
@@ -57,7 +67,9 @@ struct MovementPath
     [[nodiscard]]
     bool finished() const
     {
-        return nextStep >= nodes.size();
+        return
+            nextStep >=
+            nodes.size();
     }
 };
 

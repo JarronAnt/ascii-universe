@@ -1,3 +1,4 @@
+#include "ascii/Color.hpp"
 #include "ascii/Components.hpp"
 #include "ascii/Items.hpp"
 #include "ascii/Jobs.hpp"
@@ -9,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -16,8 +18,9 @@ using namespace ascii;
 
 int main()
 {
-    constexpr std::uint64_t WorldSeed =
-        123456789ULL;
+    constexpr std::uint64_t
+        WorldSeed =
+            123456789ULL;
 
     // ==================================================
     // Simulation
@@ -97,7 +100,7 @@ int main()
     }
 
     // ==================================================
-    // Miner: Uru
+    // Uru — Miner
     // ==================================================
 
     const auto miner =
@@ -105,22 +108,16 @@ int main()
 
     registry.emplace<
         Goblin
-    >(
-        miner
-    );
+    >(miner);
 
     registry.emplace<
         Miner
-    >(
-        miner
-    );
+    >(miner);
 
     auto& minerName =
         registry.emplace<
             Name
-        >(
-            miner
-        );
+        >(miner);
 
     minerName.value =
         "Uru";
@@ -128,25 +125,28 @@ int main()
     auto& minerPosition =
         registry.emplace<
             Position
-        >(
-            miner
-        );
+        >(miner);
 
     minerPosition =
-        Position{5, 8};
+        Position{
+            5,
+            8
+        };
 
     auto& minerGlyph =
         registry.emplace<
             Glyph
-        >(
-            miner
-        );
+        >(miner);
 
     minerGlyph.character =
         'g';
 
+    minerGlyph.color =
+        TerminalColor::
+            BrightGreen;
+
     // ==================================================
-    // Hauler: Kesh
+    // Kesh — Hauler
     // ==================================================
 
     const auto hauler =
@@ -154,22 +154,16 @@ int main()
 
     registry.emplace<
         Goblin
-    >(
-        hauler
-    );
+    >(hauler);
 
     registry.emplace<
         Hauler
-    >(
-        hauler
-    );
+    >(hauler);
 
     auto& haulerName =
         registry.emplace<
             Name
-        >(
-            hauler
-        );
+        >(hauler);
 
     haulerName.value =
         "Kesh";
@@ -177,22 +171,25 @@ int main()
     auto& haulerPosition =
         registry.emplace<
             Position
-        >(
-            hauler
-        );
+        >(hauler);
 
     haulerPosition =
-        Position{5, 12};
+        Position{
+            5,
+            12
+        };
 
     auto& haulerGlyph =
         registry.emplace<
             Glyph
-        >(
-            hauler
-        );
+        >(hauler);
 
     haulerGlyph.character =
         'g';
+
+    haulerGlyph.color =
+        TerminalColor::
+            BrightYellow;
 
     // ==================================================
     // Stone stockpile
@@ -200,8 +197,16 @@ int main()
 
     const auto stoneStockpile =
         simulation.createStockpile(
-            Position{3, 2},
-            Position{9, 5},
+            Position{
+                3,
+                2
+            },
+
+            Position{
+                9,
+                5
+            },
+
             std::vector<ItemType>{
                 ItemType::Stone
             }
@@ -213,7 +218,8 @@ int main()
     )
     {
         std::cerr
-            << "Failed to create stockpile.\n";
+            << "Failed to create "
+               "stockpile.\n";
 
         return 1;
     }
@@ -223,26 +229,39 @@ int main()
     // ==================================================
 
     simulation.designateMine(
-        Position{24, 7}
+        Position{
+            24,
+            7
+        }
     );
 
     simulation.designateMine(
-        Position{24, 8}
+        Position{
+            24,
+            8
+        }
     );
 
     simulation.designateMine(
-        Position{24, 9}
+        Position{
+            24,
+            9
+        }
     );
 
     simulation.designateMine(
-        Position{24, 10}
+        Position{
+            24,
+            10
+        }
     );
 
     // Deliberate duplicate.
-    //
-    // Deduplication should ignore this.
     simulation.designateMine(
-        Position{24, 8}
+        Position{
+            24,
+            8
+        }
     );
 
     // ==================================================
@@ -251,21 +270,11 @@ int main()
 
     TerminalRenderer renderer;
 
-    // Hide terminal cursor while simulation runs.
-    std::cout
-        << "\033[?25l";
-
-    auto renderStatus =
-        [&]()
+    const auto buildHud =
+        [&](
+            bool completed
+        )
         {
-            renderer.render(
-                map,
-                registry
-            );
-
-            const JobBoard& jobs =
-                simulation.jobBoard();
-
             std::size_t groundItems =
                 0;
 
@@ -289,148 +298,195 @@ int main()
                 const auto& state =
                     itemView.get<
                         ItemState
-                    >(
-                        entity
-                    );
+                    >(entity);
 
                 switch (
                     state.location
                 )
                 {
-                    case ItemLocation::OnGround:
+                    case ItemLocation::
+                        OnGround:
                         ++groundItems;
                         break;
 
-                    case ItemLocation::Carried:
+                    case ItemLocation::
+                        Carried:
                         ++carriedItems;
                         break;
 
-                    case ItemLocation::Stockpiled:
+                    case ItemLocation::
+                        Stockpiled:
                         ++stockpiledItems;
                         break;
                 }
             }
 
+            const JobBoard& jobs =
+                simulation.jobBoard();
+
             const auto&
                 currentMinerPosition =
                     registry.get<
                         Position
-                    >(
-                        miner
-                    );
+                    >(miner);
 
             const auto&
                 currentHaulerPosition =
                     registry.get<
                         Position
-                    >(
-                        hauler
-                    );
+                    >(hauler);
 
-            const auto&
-                stockpile =
-                    registry.get<
-                        Stockpile
-                    >(
-                        stoneStockpile
-                    );
+            const auto& stockpile =
+                registry.get<
+                    Stockpile
+                >(
+                    stoneStockpile
+                );
 
-            std::cout
-                << "\nWorld seed: "
-                << WorldSeed
-                << '\n';
+            std::vector<std::string>
+                lines;
 
-            std::cout
-                << "Tick: "
-                << simulation.time().tick
-                << "\n\n";
-
-            std::cout
-                << "Jobs available: "
-                << jobs.count(
-                    JobState::Available
+            lines.push_back(
+                "ASCII Universe | Tick "
+                +
+                std::to_string(
+                    simulation.
+                        time().tick
                 )
-                << '\n';
+            );
 
-            std::cout
-                << "Jobs assigned:  "
-                << jobs.count(
-                    JobState::Assigned
+            lines.push_back(
+                "Seed: "
+                +
+                std::to_string(
+                    WorldSeed
                 )
-                << '\n';
+            );
 
-            std::cout
-                << "Jobs complete:  "
-                << jobs.count(
-                    JobState::Complete
+            lines.push_back(
+                "Jobs A:"
+                +
+                std::to_string(
+                    jobs.count(
+                        JobState::
+                            Available
+                    )
                 )
-                << '\n';
-
-            std::cout
-                << "Jobs cancelled: "
-                << jobs.count(
-                    JobState::Cancelled
+                +
+                " X:"
+                +
+                std::to_string(
+                    jobs.count(
+                        JobState::
+                            Assigned
+                    )
                 )
-                << "\n\n";
+                +
+                " C:"
+                +
+                std::to_string(
+                    jobs.count(
+                        JobState::
+                            Complete
+                    )
+                )
+            );
 
-            std::cout
-                << "Items on ground: "
-                << groundItems
-                << '\n';
+            lines.push_back(
+                "Items ground:"
+                +
+                std::to_string(
+                    groundItems
+                )
+                +
+                " carried:"
+                +
+                std::to_string(
+                    carriedItems
+                )
+                +
+                " stored:"
+                +
+                std::to_string(
+                    stockpiledItems
+                )
+            );
 
-            std::cout
-                << "Items carried:   "
-                << carriedItems
-                << '\n';
+            lines.push_back(
+                "Stockpile reserved: "
+                +
+                std::to_string(
+                    stockpile.
+                        reservedCells.
+                        size()
+                )
+            );
 
-            std::cout
-                << "Items stored:    "
-                << stockpiledItems
-                << '\n';
+            lines.push_back(
+                "Uru  Miner  ("
+                +
+                std::to_string(
+                    currentMinerPosition.x
+                )
+                +
+                ","
+                +
+                std::to_string(
+                    currentMinerPosition.y
+                )
+                +
+                ")"
+            );
 
-            std::cout
-                << "Reserved cells:  "
-                << stockpile.
-                       reservedCells.size()
-                << "\n\n";
-
-            std::cout
-                << "Uru  (Miner):  ("
-                << currentMinerPosition.x
-                << ", "
-                << currentMinerPosition.y
-                << ')'
-                << '\n';
-
-            std::cout
-                << "Kesh (Hauler): ("
-                << currentHaulerPosition.x
-                << ", "
-                << currentHaulerPosition.y
-                << ')'
-                << '\n';
+            lines.push_back(
+                "Kesh Hauler ("
+                +
+                std::to_string(
+                    currentHaulerPosition.x
+                )
+                +
+                ","
+                +
+                std::to_string(
+                    currentHaulerPosition.y
+                )
+                +
+                ")"
+            );
 
             if (
                 registry.all_of<
                     CarryingItem
-                >(
-                    hauler
-                )
+                >(hauler)
             )
             {
-                std::cout
-                    << "Kesh is carrying stone.\n";
+                lines.push_back(
+                    "Kesh: carrying stone"
+                );
             }
             else
             {
-                std::cout
-                    << "Kesh is not carrying anything.\n";
+                lines.push_back(
+                    "Kesh: empty handed"
+                );
             }
 
-            std::cout.flush();
+            lines.push_back(
+                completed
+                    ?
+                    "Status: COMPLETE"
+                    :
+                    "Status: RUNNING"
+            );
+
+            return lines;
         };
 
-    renderStatus();
+    renderer.render(
+        map,
+        registry,
+        buildHud(false)
+    );
 
     // ==================================================
     // Fixed timestep loop
@@ -472,12 +528,19 @@ int main()
             ticksExecuted > 0
         )
         {
-            renderStatus();
-
-            if (
+            const bool complete =
                 !simulation.
-                    hasOutstandingWork()
-            )
+                    hasOutstandingWork();
+
+            renderer.render(
+                map,
+                registry,
+                buildHud(
+                    complete
+                )
+            );
+
+            if (complete)
             {
                 running =
                     false;
@@ -487,18 +550,13 @@ int main()
         std::this_thread::
             sleep_for(
                 std::chrono::
-                    milliseconds{1}
+                    milliseconds{
+                        1
+                    }
             );
     }
 
-    // Restore terminal cursor.
-    std::cout
-        << "\033[?25h";
-
-    renderStatus();
-
-    std::cout
-        << "\n\nAll mining and hauling jobs complete.\n";
+    renderer.finish();
 
     return 0;
 }

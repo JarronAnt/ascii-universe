@@ -1,11 +1,11 @@
 #pragma once
 
-#include "Components.hpp"
+#include "Color.hpp"
 #include "GameMap.hpp"
-#include "Stockpiles.hpp"
+
 #include <entt/entt.hpp>
 
-#include <iostream>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -15,131 +15,60 @@ namespace ascii
 class TerminalRenderer
 {
 public:
-    void clear()
-    {
-        // Clear terminal and move cursor to top-left.
-        std::cout << "\033[2J\033[H";
-    }
+    TerminalRenderer() = default;
+
+    ~TerminalRenderer();
+
+    TerminalRenderer(
+        const TerminalRenderer&
+    ) = delete;
+
+    TerminalRenderer&
+    operator=(
+        const TerminalRenderer&
+    ) = delete;
 
     void render(
         const GameMap& map,
-        entt::registry& registry
-    )
+        entt::registry& registry,
+        const std::vector<std::string>&
+            hudLines = {}
+    );
+
+    // Restore terminal state and leave the cursor
+    // beneath the rendered game.
+    void finish();
+
+private:
+    struct Cell
     {
-        clear();
+        char character{' '};
 
-        // --------------------------------------------------
-        // Create framebuffer
-        // --------------------------------------------------
+        TerminalColor color{
+            TerminalColor::Default
+        };
 
-        std::vector<std::string> buffer(
-            static_cast<std::size_t>(map.height()),
-            std::string(
-                static_cast<std::size_t>(map.width()),
-                ' '
-            )
-        );
+        friend bool operator==(
+            const Cell&,
+            const Cell&
+        ) = default;
+    };
 
-        // --------------------------------------------------
-        // Render map tiles into framebuffer
-        // --------------------------------------------------
+    void initializeScreen(
+        std::size_t width,
+        std::size_t height
+    );
 
-        for (int y = 0; y < map.height(); ++y)
-        {
-            for (int x = 0; x < map.width(); ++x)
-            {
-                switch (map.at(x, y).type)
-                {
-                    case TileType::Floor:
-                        buffer[y][x] = '.';
-                        break;
+    std::vector<Cell>
+        previousFrame_;
 
-                    case TileType::Wall:
-                        buffer[y][x] = '#';
-                        break;
-                }
-            }
-        }
-        
-        // --------------------------------------------------
-        // Render stockpile zones
-        // --------------------------------------------------
+    std::size_t frameWidth_{0};
 
-auto stockpileView =registry.view<Stockpile>();
+    std::size_t frameHeight_{0};
 
-for (auto entity :stockpileView)
-{
-    const auto& stockpile = stockpileView.get<Stockpile>(entity);
+    bool initialized_{false};
 
-    for (int y = stockpile.bounds.topLeft.y ; y <=stockpile.bounds.bottomRight.y ; ++y)
-    {
-        for (
-            int x =
-                stockpile.bounds.topLeft.x;
-            x <=
-                stockpile.bounds.bottomRight.x;
-            ++x
-        )
-        {
-            if (
-                !map.inBounds(
-                    x,
-                    y
-                )
-            )
-            {
-                continue;
-            }
-
-            if (
-                map.at(
-                    x,
-                    y
-                ).walkable()
-            )
-            {
-                buffer[y][x] = '=';
-            }
-        }
-    }
-}
-
-
-        // --------------------------------------------------
-        // Render ECS entities into framebuffer
-        // --------------------------------------------------
-
-        auto view = registry.view<Position, Glyph>();
-
-        for (auto entity : view)
-        {
-            const auto& position =
-                view.get<Position>(entity);
-
-            const auto& glyph =
-                view.get<Glyph>(entity);
-
-            // Make sure the entity is actually on the map.
-            if (!map.inBounds(position.x, position.y))
-            {
-                continue;
-            }
-
-            buffer[position.y][position.x] =
-                glyph.character;
-        }
-
-        // --------------------------------------------------
-        // Present framebuffer
-        // --------------------------------------------------
-
-        for (const auto& row : buffer)
-        {
-            std::cout << row << '\n';
-        }
-
-        std::cout.flush();
-    }
+    bool finished_{false};
 };
 
 }

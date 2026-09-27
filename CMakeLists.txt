@@ -12,9 +12,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 
-# --------------------------------------------------
+# ==================================================
 # EnTT
-# --------------------------------------------------
+# ==================================================
 
 FetchContent_Declare(
     EnTT
@@ -24,9 +24,9 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(EnTT)
 
-# --------------------------------------------------
+# ==================================================
 # nlohmann/json
-# --------------------------------------------------
+# ==================================================
 
 FetchContent_Declare(
     json
@@ -36,14 +36,22 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(json)
 
-# --------------------------------------------------
-# Engine
-# --------------------------------------------------
+# ==================================================
+# Executable
+# ==================================================
 
 add_executable(
     ascii_universe
 
     src/main.cpp
+
+    src/Simulation.cpp
+    src/TerminalRenderer.cpp
+
+    src/systems/DesignationSystems.cpp
+    src/systems/MovementSystem.cpp
+    src/systems/MiningSystems.cpp
+    src/systems/LogisticsSystems.cpp
 )
 
 target_include_directories(

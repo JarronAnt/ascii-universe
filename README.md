@@ -101,17 +101,17 @@ Development is planned roughly in the following order.
 - [x] Terminal renderer
 - [x] ECS entity system
 - [x] Entity rendering
-- [ ] Fixed timestep simulation
-- [ ] Deterministic random number generation
+- [x] Fixed timestep simulation
+- [x] Deterministic random number generation
 - [ ] Event system
 
 ---
 
 ## Movement and Navigation
 
-- [ ] Autonomous movement
-- [ ] A* pathfinding
-- [ ] Path caching
+- [x] Autonomous movement
+- [x] A* pathfinding
+- [x] Path caching
 - [ ] Collision and occupancy
 - [ ] Movement costs
 

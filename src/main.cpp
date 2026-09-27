@@ -1,5 +1,5 @@
 #include "ascii/Components.hpp"
-#include "ascii/Pathfinder.hpp"
+#include "ascii/Jobs.hpp"
 #include "ascii/Simulation.hpp"
 #include "ascii/TerminalRenderer.hpp"
 
@@ -7,21 +7,16 @@
 #include <cstdint>
 #include <iostream>
 #include <thread>
-#include <utility>
 
 using namespace ascii;
 
 int main()
 {
-    // --------------------------------------------------
-    // World seed
-    // --------------------------------------------------
-
     constexpr std::uint64_t WorldSeed =
         123456789ULL;
 
     // --------------------------------------------------
-    // Simulation
+    // Create simulation
     // --------------------------------------------------
 
     Simulation simulation{
@@ -40,131 +35,174 @@ int main()
     // Outer walls
     // --------------------------------------------------
 
-    for (int y = 0; y < map.height(); ++y)
+    for (
+        int y = 0;
+        y < map.height();
+        ++y
+    )
     {
-        for (int x = 0; x < map.width(); ++x)
+        for (
+            int x = 0;
+            x < map.width();
+            ++x
+        )
         {
             if (
                 x == 0 ||
                 y == 0 ||
-                x == map.width() - 1 ||
-                y == map.height() - 1
+                x ==
+                    map.width() - 1 ||
+                y ==
+                    map.height() - 1
             )
             {
-                map.at(x, y).type =
+                map.at(
+                    x,
+                    y
+                ).type =
                     TileType::Wall;
             }
         }
     }
 
     // --------------------------------------------------
-    // Add an internal wall.
-    //
-    // The goblin MUST use A* to find the gap.
+    // Rock formation
     // --------------------------------------------------
 
-    constexpr int WallX = 20;
-    constexpr int GapY = 10;
-
     for (
-        int y = 1;
-        y < map.height() - 1;
+        int y = 5;
+        y <= 13;
         ++y
     )
     {
-        if (y == GapY)
+        for (
+            int x = 24;
+            x <= 30;
+            ++x
+        )
         {
-            continue;
+            map.at(
+                x,
+                y
+            ).type =
+                TileType::Wall;
         }
-
-        map.at(
-            WallX,
-            y
-        ).type = TileType::Wall;
     }
 
     // --------------------------------------------------
-    // Deterministic start/goal
-    // --------------------------------------------------
-    //
-    // These LOOK random, but the same WorldSeed always
-    // gives the same result.
-
-    const Position start{
-        2,simulation.random().integer(2,map.height() - 3)
-    };
-
-    const Position goal{map.width() - 3,simulation.random().integer(2, map.height() - 3)
-    };
-
-    // --------------------------------------------------
-    // Create goblin
+    // Miner goblin
     // --------------------------------------------------
 
-    const auto goblin =
+    const auto miner =
         registry.create();
 
-    registry.emplace<Goblin>(
-        goblin
+    registry.emplace<
+        Goblin
+    >(
+        miner
     );
 
-    registry.emplace<Name>(
-        goblin,
+    registry.emplace<
+        Miner
+    >(
+        miner
+    );
+
+    registry.emplace<
+        Name
+    >(
+        miner,
         "Uru"
     );
 
-    registry.emplace<Position>(
-        goblin,
-        start.x,
-        start.y
+    registry.emplace<
+        Position
+    >(
+        miner,
+        5,
+        8
     );
 
-    registry.emplace<Glyph>(
-        goblin,
+    registry.emplace<
+        Glyph
+    >(
+        miner,
         'g'
     );
 
     // --------------------------------------------------
-    // Pathfinding
+    // Hauler goblin
+    //
+    // This goblin does NOT have Miner.
+    //
+    // It should therefore completely ignore mining
+    // jobs.
     // --------------------------------------------------
 
-    Pathfinder pathfinder;
+    const auto hauler =
+        registry.create();
 
-    auto path =
-        pathfinder.findPath(
-            map,
-            start,
-            goal
-        );
+    registry.emplace<
+        Goblin
+    >(
+        hauler
+    );
 
-    if (!path)
-    {
-        std::cerr
-            << "No path found from ("
-            << start.x
-            << ", "
-            << start.y
-            << ") to ("
-            << goal.x
-            << ", "
-            << goal.y
-            << ")\n";
+    registry.emplace<
+        Hauler
+    >(
+        hauler
+    );
 
-        return 1;
-    }
+    registry.emplace<
+        Name
+    >(
+        hauler,
+        "Kesh"
+    );
 
-    std::cout
-        << "Path contains "
-        << path->size()
-        << " steps.\n";
+    registry.emplace<
+        Position
+    >(
+        hauler,
+        5,
+        12
+    );
 
-    auto& movement =
-        registry.emplace<MovementPath>(
-            goblin
-        );
+    registry.emplace<
+        Glyph
+    >(
+        hauler,
+        'g'
+    );
 
-    movement.nodes = std::move(*path);
-    movement.nextStep = 0; 
+    // --------------------------------------------------
+    // Player mining commands
+    // --------------------------------------------------
+
+    simulation.designateMine(
+        Position{24, 7}
+    );
+
+    simulation.designateMine(
+        Position{24, 8}
+    );
+
+    simulation.designateMine(
+        Position{24, 9}
+    );
+
+    simulation.designateMine(
+        Position{24, 10}
+    );
+
+    // Deliberate duplicate.
+    //
+    // designationDedupSystem() should ignore this one.
+    simulation.designateMine(
+        Position{24, 8}
+    );
+
     // --------------------------------------------------
     // Renderer
     // --------------------------------------------------
@@ -177,26 +215,18 @@ int main()
     );
 
     std::cout
-        << "\nSeed: "
+        << "\nWorld seed: "
         << WorldSeed
         << '\n';
 
     std::cout
-        << "Start: ("
-        << start.x
-        << ", "
-        << start.y
-        << ")\n";
+        << "Uru: Miner\n";
 
     std::cout
-        << "Goal:  ("
-        << goal.x
-        << ", "
-        << goal.y
-        << ")\n";
+        << "Kesh: Hauler\n";
 
     // --------------------------------------------------
-    // Fixed timestep game loop
+    // Fixed timestep loop
     // --------------------------------------------------
 
     using Clock =
@@ -213,80 +243,119 @@ int main()
             Clock::now();
 
         const auto elapsed =
-            std::chrono::duration_cast<
-                std::chrono::nanoseconds
-            >(
-                currentTime -
-                previousTime
-            );
+            std::chrono::
+                duration_cast<
+                    std::chrono::
+                        nanoseconds
+                >(
+                    currentTime -
+                    previousTime
+                );
 
         previousTime =
             currentTime;
 
-        // Convert elapsed real time into zero or more
-        // fixed simulation ticks.
         const int ticksExecuted =
             simulation.advance(
                 elapsed
             );
 
-        // Only redraw when simulation state changed.
-        if (ticksExecuted > 0)
+        if (
+            ticksExecuted > 0
+        )
         {
             renderer.render(
                 map,
                 registry
             );
 
-            const auto& position =
-                registry.get<Position>(
-                    goblin
-                );
-
-            const auto& movement =
-                registry.get<MovementPath>(
-                    goblin
-                );
+            const JobBoard&
+                jobs =
+                    simulation.
+                        jobBoard();
 
             std::cout
-                << "\nSeed: "
-                << WorldSeed
+                << "\nTick: "
+                << simulation.
+                       time().tick
                 << '\n';
 
             std::cout
-                << "Simulation tick: "
-                << simulation.time().tick
+                << "Jobs available: "
+                << jobs.count(
+                    JobState::
+                        Available
+                )
                 << '\n';
 
             std::cout
-                << "Goblin: ("
-                << position.x
-                << ", "
-                << position.y
-                << ")\n";
+                << "Jobs assigned:  "
+                << jobs.count(
+                    JobState::
+                        Assigned
+                )
+                << '\n';
 
             std::cout
-                << "Goal:   ("
-                << goal.x
-                << ", "
-                << goal.y
-                << ")\n";
+                << "Jobs complete:  "
+                << jobs.count(
+                    JobState::
+                        Complete
+                )
+                << '\n';
 
-            if (movement.finished())
+            const auto&
+                minerPosition =
+                    registry.get<
+                        Position
+                    >(
+                        miner
+                    );
+
+            const auto&
+                haulerPosition =
+                    registry.get<
+                        Position
+                    >(
+                        hauler
+                    );
+
+            std::cout
+                << "\nUru (Miner):  "
+                << '('
+                << minerPosition.x
+                << ", "
+                << minerPosition.y
+                << ')'
+                << '\n';
+
+            std::cout
+                << "Kesh (Hauler): "
+                << '('
+                << haulerPosition.x
+                << ", "
+                << haulerPosition.y
+                << ')'
+                << '\n';
+
+            if (
+                !simulation.
+                    hasOutstandingWork()
+            )
             {
                 running = false;
             }
         }
 
-        // Don't burn an entire CPU core while we're
-        // waiting for the next simulation tick.
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds{1}
-        );
+        std::this_thread::
+            sleep_for(
+                std::chrono::
+                    milliseconds{1}
+            );
     }
 
     std::cout
-        << "\nGoblin reached destination.\n";
+        << "\nAll mining jobs complete.\n";
 
     return 0;
 }

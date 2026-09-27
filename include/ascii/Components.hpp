@@ -23,6 +23,31 @@ struct Glyph
     char character{'?'};
 };
 
+// --------------------------------------------------
+// Professions
+// --------------------------------------------------
+
+struct Miner
+{
+};
+
+struct Hauler
+{
+};
+
+// Later:
+//
+// struct Builder {};
+// struct Farmer {};
+// struct Smith {};
+// struct Carpenter {};
+// struct Doctor {};
+// struct Soldier {};
+
+// --------------------------------------------------
+// Movement
+// --------------------------------------------------
+
 struct MovementPath
 {
     std::vector<Position> nodes;

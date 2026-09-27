@@ -2,10 +2,13 @@
 
 #include "Components.hpp"
 #include "Designations.hpp"
+#include "Events.hpp"
 #include "GameMap.hpp"
+#include "Items.hpp"
 #include "Jobs.hpp"
 #include "Pathfinder.hpp"
 #include "Random.hpp"
+#include "Stockpiles.hpp"
 
 #include <entt/entt.hpp>
 
@@ -29,10 +32,6 @@ struct SimulationTime
 class Simulation
 {
 public:
-    // --------------------------------------------------
-    // Fixed timestep
-    // --------------------------------------------------
-
     static constexpr std::uint32_t TickRate =
         10;
 
@@ -51,9 +50,9 @@ public:
     {
     }
 
-    // --------------------------------------------------
-    // Real time -> fixed simulation ticks
-    // --------------------------------------------------
+    // ==================================================
+    // Real time -> fixed simulation time
+    // ==================================================
 
     int advance(
         std::chrono::nanoseconds elapsed
@@ -85,37 +84,64 @@ public:
         return ticksExecuted;
     }
 
-    // --------------------------------------------------
+    // ==================================================
     // One deterministic simulation tick
-    // --------------------------------------------------
+    // ==================================================
 
     void step()
     {
-        // Ordering matters.
-        //
-        // Designations must be deduplicated BEFORE
-        // they become jobs.
+        // ----------------------------------------------
+        // Player intent -> jobs
+        // ----------------------------------------------
 
         designationDedupSystem();
 
         designationToJobsSystem();
 
-        // Idle workers claim jobs and receive paths.
+        // Existing loose items may need hauling.
+        haulingJobGenerationSystem();
+
+        // ----------------------------------------------
+        // Assign work
+        // ----------------------------------------------
+
         jobAssignmentSystem();
 
-        // Workers travel along their assigned path.
+        // ----------------------------------------------
+        // Movement
+        // ----------------------------------------------
+
         movementSystem();
 
-        // Workers perform work after reaching
-        // the appropriate work position.
+        // ----------------------------------------------
+        // Work execution
+        // ----------------------------------------------
+
         miningSystem();
+
+        haulingSystem();
+
+        // ----------------------------------------------
+        // Events
+        // ----------------------------------------------
+
+        itemSpawnSystem();
+
+        itemPickupSystem();
+
+        itemDropSystem();
+
+        // Mining may have created new items this tick.
+        //
+        // Generate their haul jobs immediately.
+        haulingJobGenerationSystem();
 
         ++time_.tick;
     }
 
-    // --------------------------------------------------
+    // ==================================================
     // Player commands
-    // --------------------------------------------------
+    // ==================================================
 
     entt::entity designateMine(
         Position position
@@ -173,14 +199,69 @@ public:
                 entity
             );
 
-        glyph.character = 'X';
+        glyph.character =
+            'X';
 
         return entity;
     }
 
-    // --------------------------------------------------
+    entt::entity createStockpile(
+        Position topLeft,
+        Position bottomRight,
+        std::vector<ItemType> accepts
+    )
+    {
+        if (
+            topLeft.x >
+                bottomRight.x
+            ||
+            topLeft.y >
+                bottomRight.y
+        )
+        {
+            return entt::null;
+        }
+
+        if (
+            !map_.inBounds(
+                topLeft.x,
+                topLeft.y
+            )
+            ||
+            !map_.inBounds(
+                bottomRight.x,
+                bottomRight.y
+            )
+        )
+        {
+            return entt::null;
+        }
+
+        const auto entity =
+            registry_.create();
+
+        auto& stockpile =
+            registry_.emplace<
+                Stockpile
+            >(
+                entity
+            );
+
+        stockpile.bounds.topLeft =
+            topLeft;
+
+        stockpile.bounds.bottomRight =
+            bottomRight;
+
+        stockpile.accepts =
+            std::move(accepts);
+
+        return entity;
+    }
+
+    // ==================================================
     // Public state access
-    // --------------------------------------------------
+    // ==================================================
 
     GameMap& map()
     {
@@ -228,13 +309,7 @@ public:
         return time_;
     }
 
-    // Useful for our CLI demo.
-    //
-    // Returns true while either:
-    //
-    //     active designations exist
-    // or
-    //     unfinished jobs exist
+    [[nodiscard]]
     bool hasOutstandingWork()
     {
         if (
@@ -244,16 +319,30 @@ public:
             return true;
         }
 
-        auto view =
+        if (
+            !itemSpawnEvents_.empty()
+            ||
+            !itemPickupEvents_.empty()
+            ||
+            !itemDropEvents_.empty()
+        )
+        {
+            return true;
+        }
+
+        auto designationView =
             registry_.view<
                 MineDesignation,
                 DesignationLifecycle
             >();
 
-        for (auto entity : view)
+        for (
+            auto entity :
+            designationView
+        )
         {
             const auto& lifecycle =
-                view.get<
+                designationView.get<
                     DesignationLifecycle
                 >(
                     entity
@@ -261,7 +350,7 @@ public:
 
             if (
                 lifecycle.state ==
-                DesignationState::Active
+                    DesignationState::Active
             )
             {
                 return true;
@@ -273,7 +362,7 @@ public:
 
 private:
     // ==================================================
-    // Designation deduplication
+    // DESIGNATIONS
     // ==================================================
 
     void designationDedupSystem()
@@ -299,7 +388,7 @@ private:
 
             if (
                 lifecycle.state ==
-                DesignationState::Active
+                    DesignationState::Active
             )
             {
                 entities.push_back(
@@ -308,7 +397,9 @@ private:
             }
         }
 
-        sortEntities(entities);
+        sortEntities(
+            entities
+        );
 
         std::set<
             std::pair<int, int>
@@ -346,8 +437,7 @@ private:
                     );
 
                 lifecycle.state =
-                    DesignationState::
-                        Ignored;
+                    DesignationState::Ignored;
 
                 hideDesignation(
                     entity
@@ -355,10 +445,6 @@ private:
             }
         }
     }
-
-    // ==================================================
-    // Designation -> Job
-    // ==================================================
 
     void designationToJobsSystem()
     {
@@ -383,7 +469,7 @@ private:
 
             if (
                 lifecycle.state ==
-                DesignationState::Active
+                    DesignationState::Active
             )
             {
                 entities.push_back(
@@ -392,7 +478,9 @@ private:
             }
         }
 
-        sortEntities(entities);
+        sortEntities(
+            entities
+        );
 
         for (auto entity : entities)
         {
@@ -410,8 +498,6 @@ private:
                     entity
                 );
 
-            // It might have become invalid before this
-            // system executes.
             if (
                 !map_.inBounds(
                     position.x,
@@ -426,8 +512,7 @@ private:
             )
             {
                 lifecycle.state =
-                    DesignationState::
-                        Ignored;
+                    DesignationState::Ignored;
 
                 hideDesignation(
                     entity
@@ -443,19 +528,23 @@ private:
             );
 
             lifecycle.state =
-                DesignationState::
-                    Consumed;
+                DesignationState::Consumed;
         }
     }
 
     // ==================================================
-    // Profession-aware job assignment
+    // JOB ASSIGNMENT
     // ==================================================
 
     void jobAssignmentSystem()
     {
-        // Only goblins with the Miner component
-        // are even considered for Mine jobs.
+        miningJobAssignmentSystem();
+
+        haulingJobAssignmentSystem();
+    }
+
+    void miningJobAssignmentSystem()
+    {
         auto view =
             registry_.view<
                 Goblin,
@@ -473,11 +562,12 @@ private:
             );
         }
 
-        sortEntities(miners);
+        sortEntities(
+            miners
+        );
 
         for (auto miner : miners)
         {
-            // Already working.
             if (
                 registry_.all_of<
                     AssignedJob
@@ -503,15 +593,10 @@ private:
             {
                 if (
                     job.state !=
-                    JobState::Available
-                )
-                {
-                    continue;
-                }
-
-                if (
+                        JobState::Available
+                    ||
                     job.type !=
-                    JobType::Mine
+                        JobType::Mine
                 )
                 {
                     continue;
@@ -523,14 +608,11 @@ private:
                         job.target
                     );
 
-                // Job isn't currently reachable
-                // from this miner.
                 if (!approach)
                 {
                     continue;
                 }
 
-                // Claim job.
                 job.state =
                     JobState::Assigned;
 
@@ -541,7 +623,6 @@ private:
                     approach->
                         workPosition;
 
-                // Add AssignedJob component.
                 auto& assigned =
                     registry_.emplace<
                         AssignedJob
@@ -552,46 +633,170 @@ private:
                 assigned.id =
                     job.id;
 
-                // Ensure stale movement data isn't
-                // hanging around.
+                setMovementPath(
+                    miner,
+                    std::move(
+                        approach->path
+                    )
+                );
+
+                break;
+            }
+        }
+    }
+
+    void haulingJobAssignmentSystem()
+    {
+        auto view =
+            registry_.view<
+                Goblin,
+                Hauler,
+                Position
+            >();
+
+        std::vector<entt::entity>
+            haulers;
+
+        for (auto entity : view)
+        {
+            haulers.push_back(
+                entity
+            );
+        }
+
+        sortEntities(
+            haulers
+        );
+
+        for (auto hauler : haulers)
+        {
+            if (
+                registry_.all_of<
+                    AssignedJob
+                >(
+                    hauler
+                )
+            )
+            {
+                continue;
+            }
+
+            const Position workerPosition =
+                registry_.get<
+                    Position
+                >(
+                    hauler
+                );
+
+            for (
+                auto& job :
+                jobBoard_.jobs()
+            )
+            {
                 if (
-                    registry_.all_of<
-                        MovementPath
+                    job.state !=
+                        JobState::Available
+                    ||
+                    job.type !=
+                        JobType::Haul
+                )
+                {
+                    continue;
+                }
+
+                if (
+                    job.item ==
+                        entt::null
+                    ||
+                    !registry_.valid(
+                        job.item
+                    )
+                    ||
+                    !registry_.all_of<
+                        Item,
+                        ItemState,
+                        Position
                     >(
-                        miner
+                        job.item
                     )
                 )
                 {
-                    registry_.remove<
-                        MovementPath
-                    >(
-                        miner
+                    cancelHaulJob(
+                        job
                     );
+
+                    continue;
                 }
 
-                auto& movement =
-                    registry_.emplace<
-                        MovementPath
+                const auto& state =
+                    registry_.get<
+                        ItemState
                     >(
-                        miner
+                        job.item
                     );
 
-                movement.nodes =
-                    std::move(
-                        approach->path
+                if (
+                    state.location !=
+                        ItemLocation::OnGround
+                )
+                {
+                    cancelHaulJob(
+                        job
                     );
 
-                movement.nextStep =
-                    0;
+                    continue;
+                }
 
-                // One job per worker.
+                const Position itemPosition =
+                    registry_.get<
+                        Position
+                    >(
+                        job.item
+                    );
+
+                auto path =
+                    pathfinder_.findPath(
+                        map_,
+                        workerPosition,
+                        itemPosition
+                    );
+
+                if (!path)
+                {
+                    continue;
+                }
+
+                job.state =
+                    JobState::Assigned;
+
+                job.worker =
+                    hauler;
+
+                job.haulStage =
+                    HaulStage::ToItem;
+
+                auto& assigned =
+                    registry_.emplace<
+                        AssignedJob
+                    >(
+                        hauler
+                    );
+
+                assigned.id =
+                    job.id;
+
+                setMovementPath(
+                    hauler,
+                    std::move(*path)
+                );
+
                 break;
             }
         }
     }
 
     // ==================================================
-    // Movement
+    // MOVEMENT
     // ==================================================
 
     void movementSystem()
@@ -612,7 +817,9 @@ private:
             );
         }
 
-        sortEntities(entities);
+        sortEntities(
+            entities
+        );
 
         for (auto entity : entities)
         {
@@ -630,7 +837,9 @@ private:
                     entity
                 );
 
-            if (path.finished())
+            if (
+                path.finished()
+            )
             {
                 continue;
             }
@@ -640,8 +849,6 @@ private:
                     path.nextStep
                 ];
 
-            // A wall or some other obstacle may have
-            // appeared after path calculation.
             if (
                 !map_.inBounds(
                     next.x,
@@ -654,12 +861,6 @@ private:
                 ).walkable()
             )
             {
-                // Force the path into the finished
-                // state.
-                //
-                // miningSystem() will notice that the
-                // worker didn't reach workPosition and
-                // release the job for another attempt.
                 path.nextStep =
                     path.nodes.size();
 
@@ -674,7 +875,7 @@ private:
     }
 
     // ==================================================
-    // Mining execution
+    // MINING
     // ==================================================
 
     void miningSystem()
@@ -697,13 +898,10 @@ private:
             );
         }
 
-        sortEntities(workers);
+        sortEntities(
+            workers
+        );
 
-        // Removing AssignedJob while iterating the
-        // view could invalidate the view.
-        //
-        // Instead, collect workers and clean them up
-        // after processing.
         std::vector<entt::entity>
             workersToClear;
 
@@ -747,13 +945,12 @@ private:
 
             if (
                 job->type !=
-                JobType::Mine
+                    JobType::Mine
             )
             {
                 continue;
             }
 
-            // Worker still walking.
             if (
                 registry_.all_of<
                     MovementPath
@@ -769,7 +966,9 @@ private:
                         worker
                     );
 
-                if (!movement.finished())
+                if (
+                    !movement.finished()
+                )
                 {
                     continue;
                 }
@@ -782,11 +981,9 @@ private:
                     worker
                 );
 
-            // Path may have become invalid after
-            // assignment.
             if (
                 workerPosition !=
-                job->workPosition
+                    job->workPosition
             )
             {
                 releaseJob(
@@ -800,8 +997,6 @@ private:
                 continue;
             }
 
-            // Miner must stand immediately beside
-            // the target wall.
             if (
                 !isAdjacent(
                     workerPosition,
@@ -820,8 +1015,6 @@ private:
                 continue;
             }
 
-            // The world may have changed since job
-            // creation.
             if (
                 !map_.inBounds(
                     job->target.x,
@@ -850,11 +1043,9 @@ private:
                     job->target.y
                 );
 
-            // Someone/something may already have
-            // removed this wall.
             if (
                 targetTile.type !=
-                TileType::Wall
+                    TileType::Wall
             )
             {
                 job->state =
@@ -873,17 +1064,30 @@ private:
             }
 
             // ------------------------------------------
-            // ACTUAL MINING
+            // Mine wall
             // ------------------------------------------
 
             targetTile.type =
                 TileType::Floor;
 
+            // Do not create the stone directly here.
+            //
+            // Mining emits an event and the item
+            // subsystem handles entity creation.
+            itemSpawnEvents_.emit(
+                ItemSpawnEvent{
+                    ItemType::Stone,
+                    job->target,
+                    ItemSource::Mining
+                }
+            );
+
             job->state =
                 JobState::Complete;
 
-            // Remove the X now that the wall has
-            // actually been mined.
+            job->worker =
+                entt::null;
+
             hideDesignation(
                 job->
                     sourceDesignation
@@ -894,56 +1098,894 @@ private:
             );
         }
 
-        // ----------------------------------------------
-        // Worker cleanup
-        // ----------------------------------------------
-
         for (
             auto worker :
             workersToClear
         )
         {
-            if (
-                registry_.all_of<
-                    MovementPath
+            clearWorkerJob(
+                worker
+            );
+        }
+    }
+
+    // ==================================================
+    // ITEM SPAWNING
+    // ==================================================
+
+    void itemSpawnSystem()
+    {
+        const auto events =
+            itemSpawnEvents_.take();
+
+        for (
+            const auto& event :
+            events
+        )
+        {
+            const auto entity =
+                registry_.create();
+
+            auto& item =
+                registry_.emplace<
+                    Item
                 >(
-                    worker
-                )
+                    entity
+                );
+
+            item.type =
+                event.itemType;
+
+            item.weight =
+                1;
+
+            registry_.emplace<
+                Carriable
+            >(
+                entity
+            );
+
+            auto& state =
+                registry_.emplace<
+                    ItemState
+                >(
+                    entity
+                );
+
+            state.location =
+                ItemLocation::OnGround;
+
+            state.carrier =
+                entt::null;
+
+            state.stockpile =
+                entt::null;
+
+            auto& position =
+                registry_.emplace<
+                    Position
+                >(
+                    entity
+                );
+
+            position =
+                event.position;
+
+            auto& glyph =
+                registry_.emplace<
+                    Glyph
+                >(
+                    entity
+                );
+
+            switch (
+                event.itemType
             )
             {
-                registry_.remove<
-                    MovementPath
+                case ItemType::Stone:
+                    glyph.character =
+                        's';
+                    break;
+            }
+        }
+    }
+
+    // ==================================================
+    // HAUL JOB GENERATION
+    // ==================================================
+
+    void haulingJobGenerationSystem()
+    {
+        auto view =
+            registry_.view<
+                Item,
+                Carriable,
+                ItemState,
+                Position
+            >();
+
+        std::vector<entt::entity>
+            items;
+
+        for (auto entity : view)
+        {
+            items.push_back(
+                entity
+            );
+        }
+
+        sortEntities(
+            items
+        );
+
+        for (auto itemEntity : items)
+        {
+            const auto& state =
+                registry_.get<
+                    ItemState
                 >(
-                    worker
+                    itemEntity
                 );
+
+            if (
+                state.location !=
+                    ItemLocation::OnGround
+            )
+            {
+                continue;
             }
 
             if (
-                registry_.all_of<
-                    AssignedJob
-                >(
-                    worker
+                hasUnfinishedHaulJob(
+                    itemEntity
                 )
             )
             {
-                registry_.remove<
+                continue;
+            }
+
+            const auto& item =
+                registry_.get<
+                    Item
+                >(
+                    itemEntity
+                );
+
+            const Position itemPosition =
+                registry_.get<
+                    Position
+                >(
+                    itemEntity
+                );
+
+            auto destination =
+                findStockpileDestination(
+                    item.type,
+                    itemPosition
+                );
+
+            if (!destination)
+            {
+                continue;
+            }
+
+            auto& stockpile =
+                registry_.get<
+                    Stockpile
+                >(
+                    destination->
+                        stockpile
+                );
+
+            // Reserve the destination immediately so
+            // another stone can't choose it.
+            stockpile.reservedCells.push_back(
+                destination->position
+            );
+
+            jobBoard_.addHaul(
+                itemEntity,
+                destination->stockpile,
+                destination->position
+            );
+        }
+    }
+
+    // ==================================================
+    // HAULING
+    // ==================================================
+
+    void haulingSystem()
+    {
+        auto view =
+            registry_.view<
+                Goblin,
+                Hauler,
+                Position,
+                AssignedJob
+            >();
+
+        std::vector<entt::entity>
+            workers;
+
+        for (auto entity : view)
+        {
+            workers.push_back(
+                entity
+            );
+        }
+
+        sortEntities(
+            workers
+        );
+
+        for (auto worker : workers)
+        {
+            const auto& assigned =
+                registry_.get<
                     AssignedJob
                 >(
                     worker
+                );
+
+            Job* job =
+                jobBoard_.find(
+                    assigned.id
+                );
+
+            if (
+                job == nullptr
+                ||
+                job->type !=
+                    JobType::Haul
+                ||
+                job->state !=
+                    JobState::Assigned
+                ||
+                job->worker !=
+                    worker
+            )
+            {
+                continue;
+            }
+
+            const Position workerPosition =
+                registry_.get<
+                    Position
+                >(
+                    worker
+                );
+
+            // ==========================================
+            // Stage 1: move to the item
+            // ==========================================
+
+            if (
+                job->haulStage ==
+                    HaulStage::ToItem
+            )
+            {
+                if (
+                    !registry_.valid(
+                        job->item
+                    )
+                    ||
+                    !registry_.all_of<
+                        ItemState,
+                        Position
+                    >(
+                        job->item
+                    )
+                )
+                {
+                    cancelHaulJob(
+                        *job
+                    );
+
+                    clearWorkerJob(
+                        worker
+                    );
+
+                    continue;
+                }
+
+                const auto& state =
+                    registry_.get<
+                        ItemState
+                    >(
+                        job->item
+                    );
+
+                if (
+                    state.location !=
+                        ItemLocation::OnGround
+                )
+                {
+                    cancelHaulJob(
+                        *job
+                    );
+
+                    clearWorkerJob(
+                        worker
+                    );
+
+                    continue;
+                }
+
+                if (
+                    registry_.all_of<
+                        MovementPath
+                    >(
+                        worker
+                    )
+                )
+                {
+                    const auto& movement =
+                        registry_.get<
+                            MovementPath
+                        >(
+                            worker
+                        );
+
+                    if (
+                        !movement.finished()
+                    )
+                    {
+                        continue;
+                    }
+                }
+
+                const Position itemPosition =
+                    registry_.get<
+                        Position
+                    >(
+                        job->item
+                    );
+
+                if (
+                    workerPosition !=
+                        itemPosition
+                )
+                {
+                    // Path ended without reaching item.
+                    //
+                    // Make the job available again.
+                    releaseJob(
+                        *job
+                    );
+
+                    clearWorkerJob(
+                        worker
+                    );
+
+                    continue;
+                }
+
+                itemPickupEvents_.emit(
+                    ItemPickupEvent{
+                        job->item,
+                        worker
+                    }
+                );
+
+                continue;
+            }
+
+            // ==========================================
+            // Stage 2: carry item to stockpile
+            // ==========================================
+
+            if (
+                job->haulStage ==
+                    HaulStage::ToStockpile
+            )
+            {
+                if (
+                    !registry_.valid(
+                        job->item
+                    )
+                    ||
+                    !registry_.all_of<
+                        ItemState
+                    >(
+                        job->item
+                    )
+                )
+                {
+                    cancelHaulJob(
+                        *job
+                    );
+
+                    clearWorkerJob(
+                        worker
+                    );
+
+                    continue;
+                }
+
+                const auto& state =
+                    registry_.get<
+                        ItemState
+                    >(
+                        job->item
+                    );
+
+                if (
+                    state.location !=
+                        ItemLocation::Carried
+                    ||
+                    state.carrier !=
+                        worker
+                )
+                {
+                    continue;
+                }
+
+                if (
+                    workerPosition ==
+                        job->destination
+                )
+                {
+                    itemDropEvents_.emit(
+                        ItemDropEvent{
+                            job->item,
+                            worker,
+                            job->
+                                destinationStockpile,
+                            job->destination
+                        }
+                    );
+
+                    continue;
+                }
+
+                bool needsPath =
+                    true;
+
+                if (
+                    registry_.all_of<
+                        MovementPath
+                    >(
+                        worker
+                    )
+                )
+                {
+                    const auto& movement =
+                        registry_.get<
+                            MovementPath
+                        >(
+                            worker
+                        );
+
+                    needsPath =
+                        movement.finished();
+                }
+
+                if (!needsPath)
+                {
+                    continue;
+                }
+
+                auto path =
+                    pathfinder_.findPath(
+                        map_,
+                        workerPosition,
+                        job->destination
+                    );
+
+                if (!path)
+                {
+                    // Destination is currently
+                    // unreachable.
+                    //
+                    // Keep the item carried and retry
+                    // on future ticks.
+                    continue;
+                }
+
+                setMovementPath(
+                    worker,
+                    std::move(*path)
                 );
             }
         }
     }
 
     // ==================================================
-    // Mining pathfinding helper
+    // ITEM PICKUP
+    // ==================================================
+
+    void itemPickupSystem()
+    {
+        const auto events =
+            itemPickupEvents_.take();
+
+        for (
+            const auto& event :
+            events
+        )
+        {
+            if (
+                !registry_.valid(
+                    event.item
+                )
+                ||
+                !registry_.valid(
+                    event.agent
+                )
+                ||
+                !registry_.all_of<
+                    ItemState,
+                    Position
+                >(
+                    event.item
+                )
+                ||
+                !registry_.all_of<
+                    AssignedJob,
+                    Position
+                >(
+                    event.agent
+                )
+            )
+            {
+                continue;
+            }
+
+            auto& state =
+                registry_.get<
+                    ItemState
+                >(
+                    event.item
+                );
+
+            if (
+                state.location !=
+                    ItemLocation::OnGround
+            )
+            {
+                continue;
+            }
+
+            const Position itemPosition =
+                registry_.get<
+                    Position
+                >(
+                    event.item
+                );
+
+            const Position agentPosition =
+                registry_.get<
+                    Position
+                >(
+                    event.agent
+                );
+
+            if (
+                itemPosition !=
+                    agentPosition
+            )
+            {
+                continue;
+            }
+
+            const auto& assigned =
+                registry_.get<
+                    AssignedJob
+                >(
+                    event.agent
+                );
+
+            Job* job =
+                jobBoard_.find(
+                    assigned.id
+                );
+
+            if (
+                job == nullptr
+                ||
+                job->type !=
+                    JobType::Haul
+                ||
+                job->item !=
+                    event.item
+            )
+            {
+                continue;
+            }
+
+            state.location =
+                ItemLocation::Carried;
+
+            state.carrier =
+                event.agent;
+
+            state.stockpile =
+                entt::null;
+
+            // Item is no longer physically sitting
+            // on the ground.
+            registry_.remove<
+                Position
+            >(
+                event.item
+            );
+
+            if (
+                registry_.all_of<
+                    CarryingItem
+                >(
+                    event.agent
+                )
+            )
+            {
+                auto& carrying =
+                    registry_.get<
+                        CarryingItem
+                    >(
+                        event.agent
+                    );
+
+                carrying.item =
+                    event.item;
+            }
+            else
+            {
+                auto& carrying =
+                    registry_.emplace<
+                        CarryingItem
+                    >(
+                        event.agent
+                    );
+
+                carrying.item =
+                    event.item;
+            }
+
+            job->haulStage =
+                HaulStage::ToStockpile;
+
+            // Replace the route-to-item with a route
+            // to the reserved stockpile tile.
+            auto path =
+                pathfinder_.findPath(
+                    map_,
+                    agentPosition,
+                    job->destination
+                );
+
+            if (path)
+            {
+                setMovementPath(
+                    event.agent,
+                    std::move(*path)
+                );
+            }
+            else
+            {
+                if (
+                    registry_.all_of<
+                        MovementPath
+                    >(
+                        event.agent
+                    )
+                )
+                {
+                    registry_.remove<
+                        MovementPath
+                    >(
+                        event.agent
+                    );
+                }
+            }
+        }
+    }
+
+    // ==================================================
+    // ITEM DROP
+    // ==================================================
+
+    void itemDropSystem()
+    {
+        const auto events =
+            itemDropEvents_.take();
+
+        for (
+            const auto& event :
+            events
+        )
+        {
+            if (
+                !registry_.valid(
+                    event.item
+                )
+                ||
+                !registry_.valid(
+                    event.agent
+                )
+                ||
+                !registry_.valid(
+                    event.stockpile
+                )
+                ||
+                !registry_.all_of<
+                    ItemState
+                >(
+                    event.item
+                )
+                ||
+                !registry_.all_of<
+                    Stockpile
+                >(
+                    event.stockpile
+                )
+                ||
+                !registry_.all_of<
+                    AssignedJob
+                >(
+                    event.agent
+                )
+            )
+            {
+                continue;
+            }
+
+            auto& state =
+                registry_.get<
+                    ItemState
+                >(
+                    event.item
+                );
+
+            if (
+                state.location !=
+                    ItemLocation::Carried
+                ||
+                state.carrier !=
+                    event.agent
+            )
+            {
+                continue;
+            }
+
+            auto& stockpile =
+                registry_.get<
+                    Stockpile
+                >(
+                    event.stockpile
+                );
+
+            if (
+                !stockpile.bounds.contains(
+                    event.destination
+                )
+            )
+            {
+                continue;
+            }
+
+            const auto& assigned =
+                registry_.get<
+                    AssignedJob
+                >(
+                    event.agent
+                );
+
+            Job* job =
+                jobBoard_.find(
+                    assigned.id
+                );
+
+            if (
+                job == nullptr
+                ||
+                job->type !=
+                    JobType::Haul
+                ||
+                job->item !=
+                    event.item
+            )
+            {
+                continue;
+            }
+
+            // ------------------------------------------
+            // Put item into the world again
+            // ------------------------------------------
+
+            if (
+                registry_.all_of<
+                    Position
+                >(
+                    event.item
+                )
+            )
+            {
+                registry_.get<
+                    Position
+                >(
+                    event.item
+                ) = event.destination;
+            }
+            else
+            {
+                auto& position =
+                    registry_.emplace<
+                        Position
+                    >(
+                        event.item
+                    );
+
+                position =
+                    event.destination;
+            }
+
+            state.location =
+                ItemLocation::Stockpiled;
+
+            state.carrier =
+                entt::null;
+
+            state.stockpile =
+                event.stockpile;
+
+            if (
+                std::find(
+                    stockpile.currentItems.begin(),
+                    stockpile.currentItems.end(),
+                    event.item
+                )
+                ==
+                stockpile.currentItems.end()
+            )
+            {
+                stockpile.currentItems.push_back(
+                    event.item
+                );
+            }
+
+            releaseStockpileReservation(
+                event.stockpile,
+                event.destination
+            );
+
+            job->state =
+                JobState::Complete;
+
+            job->worker =
+                entt::null;
+
+            if (
+                registry_.all_of<
+                    CarryingItem
+                >(
+                    event.agent
+                )
+            )
+            {
+                registry_.remove<
+                    CarryingItem
+                >(
+                    event.agent
+                );
+            }
+
+            clearWorkerJob(
+                event.agent
+            );
+        }
+    }
+
+    // ==================================================
+    // MINING PATHFINDING
     // ==================================================
 
     struct MiningApproach
     {
         Position workPosition{};
 
-        std::vector<Position> path;
+        std::vector<Position>
+            path;
     };
 
     [[nodiscard]]
@@ -953,15 +1995,6 @@ private:
         Position wall
     ) const
     {
-        // Deterministic order:
-        //
-        // north
-        // east
-        // south
-        // west
-        //
-        // If two paths have the same length,
-        // the first one encountered wins.
         constexpr std::array<
             Position,
             4
@@ -1037,7 +2070,9 @@ private:
                     std::move(*path);
 
                 best =
-                    std::move(approach);
+                    std::move(
+                        approach
+                    );
             }
         }
 
@@ -1045,8 +2080,405 @@ private:
     }
 
     // ==================================================
-    // Helpers
+    // STOCKPILE SEARCH
     // ==================================================
+
+    struct StockpileDestination
+    {
+        entt::entity stockpile{
+            entt::null
+        };
+
+        Position position{};
+
+        std::size_t pathLength{};
+    };
+
+    [[nodiscard]]
+    std::optional<StockpileDestination>
+    findStockpileDestination(
+        ItemType itemType,
+        Position itemPosition
+    )
+    {
+        auto view =
+            registry_.view<
+                Stockpile
+            >();
+
+        std::vector<entt::entity>
+            stockpiles;
+
+        for (auto entity : view)
+        {
+            stockpiles.push_back(
+                entity
+            );
+        }
+
+        sortEntities(
+            stockpiles
+        );
+
+        std::optional<
+            StockpileDestination
+        > best;
+
+        for (
+            auto stockpileEntity :
+            stockpiles
+        )
+        {
+            auto& stockpile =
+                registry_.get<
+                    Stockpile
+                >(
+                    stockpileEntity
+                );
+
+            if (
+                !stockpile.acceptsItem(
+                    itemType
+                )
+                ||
+                stockpile.full()
+            )
+            {
+                continue;
+            }
+
+            for (
+                int y =
+                    stockpile.bounds.topLeft.y;
+                y <=
+                    stockpile.bounds.bottomRight.y;
+                ++y
+            )
+            {
+                for (
+                    int x =
+                        stockpile.bounds.topLeft.x;
+                    x <=
+                        stockpile.bounds.bottomRight.x;
+                    ++x
+                )
+                {
+                    const Position candidate{
+                        x,
+                        y
+                    };
+
+                    if (
+                        !map_.inBounds(
+                            x,
+                            y
+                        )
+                        ||
+                        !map_.at(
+                            x,
+                            y
+                        ).walkable()
+                    )
+                    {
+                        continue;
+                    }
+
+                    if (
+                        stockpileCellOccupied(
+                            stockpile,
+                            candidate
+                        )
+                        ||
+                        stockpileCellReserved(
+                            stockpile,
+                            candidate
+                        )
+                    )
+                    {
+                        continue;
+                    }
+
+                    // Ensure the destination is
+                    // actually reachable.
+                    auto path =
+                        pathfinder_.findPath(
+                            map_,
+                            itemPosition,
+                            candidate
+                        );
+
+                    if (!path)
+                    {
+                        continue;
+                    }
+
+                    if (
+                        !best
+                        ||
+                        path->size() <
+                            best->pathLength
+                    )
+                    {
+                        best =
+                            StockpileDestination{
+                                stockpileEntity,
+                                candidate,
+                                path->size()
+                            };
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
+    // ==================================================
+    // HELPERS
+    // ==================================================
+
+    [[nodiscard]]
+    bool hasUnfinishedHaulJob(
+        entt::entity item
+    ) const
+    {
+        for (
+            const auto& job :
+            jobBoard_.jobs()
+        )
+        {
+            if (
+                job.type ==
+                    JobType::Haul
+                &&
+                job.item ==
+                    item
+                &&
+                (
+                    job.state ==
+                        JobState::Available
+                    ||
+                    job.state ==
+                        JobState::Assigned
+                )
+            )
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [[nodiscard]]
+    bool stockpileCellReserved(
+        const Stockpile& stockpile,
+        Position position
+    ) const
+    {
+        return std::find(
+            stockpile.reservedCells.begin(),
+            stockpile.reservedCells.end(),
+            position
+        ) !=
+        stockpile.reservedCells.end();
+    }
+
+    [[nodiscard]]
+    bool stockpileCellOccupied(
+        const Stockpile& stockpile,
+        Position position
+    ) const
+    {
+        for (
+            auto item :
+            stockpile.currentItems
+        )
+        {
+            if (
+                !registry_.valid(
+                    item
+                )
+                ||
+                !registry_.all_of<
+                    Position
+                >(
+                    item
+                )
+            )
+            {
+                continue;
+            }
+
+            if (
+                registry_.get<
+                    Position
+                >(
+                    item
+                )
+                ==
+                position
+            )
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void releaseStockpileReservation(
+        entt::entity stockpileEntity,
+        Position position
+    )
+    {
+        if (
+            stockpileEntity ==
+                entt::null
+            ||
+            !registry_.valid(
+                stockpileEntity
+            )
+            ||
+            !registry_.all_of<
+                Stockpile
+            >(
+                stockpileEntity
+            )
+        )
+        {
+            return;
+        }
+
+        auto& stockpile =
+            registry_.get<
+                Stockpile
+            >(
+                stockpileEntity
+            );
+
+        auto iterator =
+            std::find(
+                stockpile.reservedCells.begin(),
+                stockpile.reservedCells.end(),
+                position
+            );
+
+        if (
+            iterator !=
+                stockpile.reservedCells.end()
+        )
+        {
+            stockpile.reservedCells.erase(
+                iterator
+            );
+        }
+    }
+
+    void setMovementPath(
+        entt::entity worker,
+        std::vector<Position> path
+    )
+    {
+        if (
+            registry_.all_of<
+                MovementPath
+            >(
+                worker
+            )
+        )
+        {
+            registry_.remove<
+                MovementPath
+            >(
+                worker
+            );
+        }
+
+        auto& movement =
+            registry_.emplace<
+                MovementPath
+            >(
+                worker
+            );
+
+        movement.nodes =
+            std::move(path);
+
+        movement.nextStep =
+            0;
+    }
+
+    void clearWorkerJob(
+        entt::entity worker
+    )
+    {
+        if (
+            !registry_.valid(
+                worker
+            )
+        )
+        {
+            return;
+        }
+
+        if (
+            registry_.all_of<
+                MovementPath
+            >(
+                worker
+            )
+        )
+        {
+            registry_.remove<
+                MovementPath
+            >(
+                worker
+            );
+        }
+
+        if (
+            registry_.all_of<
+                AssignedJob
+            >(
+                worker
+            )
+        )
+        {
+            registry_.remove<
+                AssignedJob
+            >(
+                worker
+            );
+        }
+    }
+
+    void cancelHaulJob(
+        Job& job
+    )
+    {
+        releaseStockpileReservation(
+            job.destinationStockpile,
+            job.destination
+        );
+
+        job.state =
+            JobState::Cancelled;
+
+        job.worker =
+            entt::null;
+    }
+
+    static void releaseJob(
+        Job& job
+    )
+    {
+        job.state =
+            JobState::Available;
+
+        job.worker =
+            entt::null;
+    }
 
     static bool isAdjacent(
         Position first,
@@ -1072,7 +2504,7 @@ private:
         }
 
         return
-            (dx + dy) == 1;
+            dx + dy == 1;
     }
 
     static void sortEntities(
@@ -1132,17 +2564,6 @@ private:
         }
     }
 
-    static void releaseJob(
-        Job& job
-    )
-    {
-        job.state =
-            JobState::Available;
-
-        job.worker =
-            entt::null;
-    }
-
     // ==================================================
     // Simulation resources
     // ==================================================
@@ -1156,6 +2577,15 @@ private:
     Pathfinder pathfinder_;
 
     JobBoard jobBoard_;
+
+    EventQueue<ItemSpawnEvent>
+        itemSpawnEvents_;
+
+    EventQueue<ItemPickupEvent>
+        itemPickupEvents_;
+
+    EventQueue<ItemDropEvent>
+        itemDropEvents_;
 
     SimulationTime time_;
 

@@ -2,7 +2,7 @@
 
 #include "Components.hpp"
 #include "GameMap.hpp"
-
+#include "Stockpiles.hpp"
 #include <entt/entt.hpp>
 
 #include <iostream>
@@ -60,6 +60,50 @@ public:
                 }
             }
         }
+        
+        // --------------------------------------------------
+        // Render stockpile zones
+        // --------------------------------------------------
+
+auto stockpileView =registry.view<Stockpile>();
+
+for (auto entity :stockpileView)
+{
+    const auto& stockpile = stockpileView.get<Stockpile>(entity);
+
+    for (int y = stockpile.bounds.topLeft.y ; y <=stockpile.bounds.bottomRight.y ; ++y)
+    {
+        for (
+            int x =
+                stockpile.bounds.topLeft.x;
+            x <=
+                stockpile.bounds.bottomRight.x;
+            ++x
+        )
+        {
+            if (
+                !map.inBounds(
+                    x,
+                    y
+                )
+            )
+            {
+                continue;
+            }
+
+            if (
+                map.at(
+                    x,
+                    y
+                ).walkable()
+            )
+            {
+                buffer[y][x] = '=';
+            }
+        }
+    }
+}
+
 
         // --------------------------------------------------
         // Render ECS entities into framebuffer

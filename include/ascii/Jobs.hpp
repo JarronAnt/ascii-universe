@@ -11,7 +11,8 @@
 namespace ascii
 {
 
-using JobId = std::uint64_t;
+using JobId =
+    std::uint64_t;
 
 enum class JobType
 {
@@ -27,6 +28,12 @@ enum class JobState
     Cancelled
 };
 
+enum class HaulStage
+{
+    ToItem,
+    ToStockpile
+};
+
 struct Job
 {
     JobId id{};
@@ -35,17 +42,12 @@ struct Job
         JobType::Mine
     };
 
-    // The thing being acted upon.
-    //
-    // For mining:
-    // this is the WALL tile.
+    // --------------------------------------------------
+    // Generic / mining data
+    // --------------------------------------------------
+
     Position target{};
 
-    // Where the worker actually stands.
-    //
-    // Mining targets are walls and therefore aren't
-    // walkable. The worker paths to a floor tile
-    // adjacent to the wall.
     Position workPosition{};
 
     JobState state{
@@ -56,13 +58,29 @@ struct Job
         entt::null
     };
 
-    // Designation that originally created this job.
     entt::entity sourceDesignation{
         entt::null
     };
+
+    // --------------------------------------------------
+    // Hauling data
+    // --------------------------------------------------
+
+    entt::entity item{
+        entt::null
+    };
+
+    entt::entity destinationStockpile{
+        entt::null
+    };
+
+    Position destination{};
+
+    HaulStage haulStage{
+        HaulStage::ToItem
+    };
 };
 
-// ECS component placed on a worker.
 struct AssignedJob
 {
     JobId id{};
@@ -71,6 +89,10 @@ struct AssignedJob
 class JobBoard
 {
 public:
+    // --------------------------------------------------
+    // Generic / mining job
+    // --------------------------------------------------
+
     JobId add(
         JobType type,
         Position target,
@@ -96,7 +118,44 @@ public:
         return job.id;
     }
 
-    Job* find(JobId id)
+    // --------------------------------------------------
+    // Hauling job
+    // --------------------------------------------------
+
+    JobId addHaul(
+        entt::entity item,
+        entt::entity stockpile,
+        Position destination
+    )
+    {
+        Job job;
+
+        job.id =
+            nextId_++;
+
+        job.type =
+            JobType::Haul;
+
+        job.item =
+            item;
+
+        job.destinationStockpile =
+            stockpile;
+
+        job.destination =
+            destination;
+
+        job.haulStage =
+            HaulStage::ToItem;
+
+        jobs_.push_back(job);
+
+        return job.id;
+    }
+
+    Job* find(
+        JobId id
+    )
     {
         for (auto& job : jobs_)
         {
@@ -109,9 +168,14 @@ public:
         return nullptr;
     }
 
-    const Job* find(JobId id) const
+    const Job* find(
+        JobId id
+    ) const
     {
-        for (const auto& job : jobs_)
+        for (
+            const auto& job :
+            jobs_
+        )
         {
             if (job.id == id)
             {
@@ -135,7 +199,10 @@ public:
     [[nodiscard]]
     bool hasUnfinished() const
     {
-        for (const auto& job : jobs_)
+        for (
+            const auto& job :
+            jobs_
+        )
         {
             if (
                 job.state ==
@@ -159,9 +226,15 @@ public:
     {
         std::size_t result = 0;
 
-        for (const auto& job : jobs_)
+        for (
+            const auto& job :
+            jobs_
+        )
         {
-            if (job.state == state)
+            if (
+                job.state ==
+                state
+            )
             {
                 ++result;
             }

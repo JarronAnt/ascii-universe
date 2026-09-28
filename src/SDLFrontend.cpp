@@ -9,7 +9,7 @@
 #include "ascii/Simulation.hpp"
 #include "ascii/Stockpiles.hpp"
 #include "ascii/Tile.hpp"
-
+#include "ascii/Simulation.hpp"
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -1880,6 +1880,26 @@ void SDLFrontend::render(
         +
         std::to_string(
             map.depth() - 1
+        )
+    );
+
+    lines.push_back(
+    "Landform: "
+    +
+    std::string(
+        landformName(
+            simulation.landform()
+        )
+    )
+);
+
+    lines.push_back(
+        "Climate: "
+        +
+        std::string(
+            climateName(
+                simulation.climate()
+            )
         )
     );
 

@@ -2,59 +2,79 @@
 
 #include "GameMap.hpp"
 #include "Position.hpp"
+#include "WorldEnvironment.hpp"
 
 #include <cstdint>
-#include <vector>
 
 namespace ascii
 {
 
 struct WorldGenConfig
 {
-    int surfaceVariation{2};
+    int erosionPasses{
+        3
+    };
 
-    int smoothingPasses{4};
+    int minimumRivers{
+        1
+    };
 
-    int veinCount{24};
+    int maximumRivers{
+        3
+    };
 
-    int treeChancePercent{16};
+    int minimumLakes{
+        0
+    };
+
+    int maximumLakes{
+        2
+    };
+
+    int oreVeinCount{
+        80
+    };
+
+    int cavernLayers{
+        2
+    };
+
+    int cavernChambersPerLayer{
+        7
+    };
+
+    double forestDensity{
+        1.0
+    };
 };
 
 struct GeneratedWorldLayout
 {
     int defaultViewZ{};
 
+    Position embarkCenter{};
+
     Position minerSpawn{};
-
     Position haulerSpawn{};
-
     Position woodcutterSpawn{};
 
-    Position stockpileMin{};
+    LandformType landform{
+        LandformType::Unknown
+    };
 
-    Position stockpileMax{};
-
-    std::vector<Position>
-        miningTargets;
-
-    std::vector<Position>
-        treeTargets;
-
-    Position digDownTarget{};
-
-    Position digUpTarget{};
+    ClimateType climate{
+        ClimateType::Unknown
+    };
 };
 
 class WorldGenerator
 {
 public:
     [[nodiscard]]
-    static GeneratedWorldLayout
-    generate(
+    static GeneratedWorldLayout generate(
         GameMap& map,
         std::uint64_t seed,
-        const WorldGenConfig&
-            config = {}
+        const WorldGenConfig& config = {}
     );
 };
 

@@ -6,16 +6,19 @@
 #include "ascii/Jobs.hpp"
 #include "ascii/Stockpiles.hpp"
 #include "ascii/Tile.hpp"
+#include "ascii/WorldEnvironment.hpp"
 
 #include <entt/entt.hpp>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -29,7 +32,7 @@ using json =
     nlohmann::json;
 
 // ==================================================
-// Basic helpers
+// Position
 // ==================================================
 
 json positionToJson(
@@ -37,9 +40,18 @@ json positionToJson(
 )
 {
     return {
-        {"x", position.x},
-        {"y", position.y},
-        {"z", position.z}
+        {
+            "x",
+            position.x
+        },
+        {
+            "y",
+            position.y
+        },
+        {
+            "z",
+            position.z
+        }
     };
 }
 
@@ -48,11 +60,34 @@ Position positionFromJson(
 )
 {
     return Position{
-        value.at("x").get<int>(),
-        value.at("y").get<int>(),
-        value.at("z").get<int>()
+        value.at(
+            "x"
+        ).get<int>(),
+
+        value.at(
+            "y"
+        ).get<int>(),
+
+        value.at(
+            "z"
+        ).get<int>()
     };
 }
+
+// ==================================================
+// Entity references
+//
+// EnTT entities are saved using their underlying value.
+//
+// This allows relationships such as:
+//
+//     worker -> job
+//     item -> carrier
+//     job -> designation
+//     stockpile -> items
+//
+// to survive save/load.
+// ==================================================
 
 json entityReference(
     entt::entity entity
@@ -153,7 +188,7 @@ Glyph glyphFromJson(
 {
     Glyph glyph;
 
-    const auto character =
+    const std::string character =
         value.at(
             "character"
         ).get<
@@ -189,14 +224,18 @@ json movementPathToJson(
 {
     json result;
 
-    result["next_step"] =
+    result[
+        "next_step"
+    ] =
         path.nextStep;
 
-    result["nodes"] =
+    result[
+        "nodes"
+    ] =
         json::array();
 
     for (
-        const auto position :
+        const Position position :
         path.nodes
     )
     {
@@ -212,8 +251,7 @@ json movementPathToJson(
     return result;
 }
 
-MovementPath
-movementPathFromJson(
+MovementPath movementPathFromJson(
     const json& value
 )
 {
@@ -244,7 +282,18 @@ movementPathFromJson(
 }
 
 // ==================================================
-// Entity collection
+// Persistent entity collection
+//
+// Currently all persistent game entities fall into one
+// of these categories:
+//
+//     Goblin
+//     Designation
+//     Item
+//     Stockpile
+//
+// If another persistent entity category is added later,
+// add it here.
 // ==================================================
 
 std::vector<entt::entity>
@@ -259,7 +308,7 @@ collectEntities(
         [&entities](auto view)
         {
             for (
-                auto entity :
+                const entt::entity entity :
                 view
             )
             {
@@ -302,9 +351,13 @@ collectEntities(
         )
         {
             return
-                entt::to_integral(lhs)
+                entt::to_integral(
+                    lhs
+                )
                 <
-                entt::to_integral(rhs);
+                entt::to_integral(
+                    rhs
+                );
         }
     );
 
@@ -330,8 +383,16 @@ json serializeEntity(
 {
     json record;
 
-    record["id"] =
-        entityId(entity);
+    record[
+        "id"
+    ] =
+        entityId(
+            entity
+        );
+
+    // ==================================================
+    // Common components
+    // ==================================================
 
     if (
         registry.all_of<
@@ -339,7 +400,9 @@ json serializeEntity(
         >(entity)
     )
     {
-        record["position"] =
+        record[
+            "position"
+        ] =
             positionToJson(
                 registry.get<
                     Position
@@ -353,7 +416,9 @@ json serializeEntity(
         >(entity)
     )
     {
-        record["glyph"] =
+        record[
+            "glyph"
+        ] =
             glyphToJson(
                 registry.get<
                     Glyph
@@ -367,13 +432,21 @@ json serializeEntity(
         >(entity)
     )
     {
-        record["name"] =
+        record[
+            "name"
+        ] =
             registry.get<
                 Name
             >(entity).value;
     }
 
-    record["tags"] = {
+    // ==================================================
+    // Marker components
+    // ==================================================
+
+    record[
+        "tags"
+    ] = {
         {
             "goblin",
             registry.all_of<
@@ -400,17 +473,27 @@ json serializeEntity(
         }
     };
 
+    // ==================================================
+    // Assigned job
+    // ==================================================
+
     if (
         registry.all_of<
             AssignedJob
         >(entity)
     )
     {
-        record["assigned_job"] =
+        record[
+            "assigned_job"
+        ] =
             registry.get<
                 AssignedJob
             >(entity).id;
     }
+
+    // ==================================================
+    // Movement
+    // ==================================================
 
     if (
         registry.all_of<
@@ -418,7 +501,9 @@ json serializeEntity(
         >(entity)
     )
     {
-        record["movement_path"] =
+        record[
+            "movement_path"
+        ] =
             movementPathToJson(
                 registry.get<
                     MovementPath
@@ -426,13 +511,19 @@ json serializeEntity(
             );
     }
 
+    // ==================================================
+    // Carrying
+    // ==================================================
+
     if (
         registry.all_of<
             CarryingItem
         >(entity)
     )
     {
-        record["carrying_item"] =
+        record[
+            "carrying_item"
+        ] =
             entityReference(
                 registry.get<
                     CarryingItem
@@ -461,7 +552,9 @@ json serializeEntity(
                 DesignationLifecycle
             >(entity);
 
-        record["designation"] = {
+        record[
+            "designation"
+        ] = {
             {
                 "type",
                 static_cast<int>(
@@ -528,7 +621,9 @@ json serializeEntity(
                     ItemState
                 >(entity);
 
-            itemJson["state"] = {
+            itemJson[
+                "state"
+            ] = {
                 {
                     "location",
                     static_cast<int>(
@@ -550,7 +645,9 @@ json serializeEntity(
             };
         }
 
-        record["item"] =
+        record[
+            "item"
+        ] =
             std::move(
                 itemJson
             );
@@ -573,7 +670,9 @@ json serializeEntity(
 
         json stockpileJson;
 
-        stockpileJson["bounds"] = {
+        stockpileJson[
+            "bounds"
+        ] = {
             {
                 "min",
                 positionToJson(
@@ -588,11 +687,13 @@ json serializeEntity(
             }
         };
 
-        stockpileJson["accepts"] =
+        stockpileJson[
+            "accepts"
+        ] =
             json::array();
 
         for (
-            const auto type :
+            const ItemType type :
             stockpile.accepts
         )
         {
@@ -611,7 +712,7 @@ json serializeEntity(
             json::array();
 
         for (
-            const auto item :
+            const entt::entity item :
             stockpile.currentItems
         )
         {
@@ -630,7 +731,7 @@ json serializeEntity(
             json::array();
 
         for (
-            const auto position :
+            const Position position :
             stockpile.reservedCells
         )
         {
@@ -660,7 +761,9 @@ json serializeEntity(
                 nullptr;
         }
 
-        record["stockpile"] =
+        record[
+            "stockpile"
+        ] =
             std::move(
                 stockpileJson
             );
@@ -670,7 +773,13 @@ json serializeEntity(
 }
 
 // ==================================================
-// Entity loading
+// Entity ID restoration
+//
+// Create every saved entity first.
+//
+// Component references may point to entities that appear
+// later in the save file, so component restoration is a
+// separate second pass.
 // ==================================================
 
 void createEntityIds(
@@ -683,7 +792,7 @@ void createEntityIds(
         entities
     )
     {
-        const auto requested =
+        const entt::entity requested =
             entityFromId(
                 record.at(
                     "id"
@@ -692,7 +801,7 @@ void createEntityIds(
                 >()
             );
 
-        const auto created =
+        const entt::entity created =
             registry.create(
                 requested
             );
@@ -709,6 +818,10 @@ void createEntityIds(
     }
 }
 
+// ==================================================
+// Entity component restoration
+// ==================================================
+
 void loadEntityComponents(
     entt::registry& registry,
     const json& entities
@@ -719,7 +832,7 @@ void loadEntityComponents(
         entities
     )
     {
-        const auto entity =
+        const entt::entity entity =
             entityFromId(
                 record.at(
                     "id"
@@ -727,6 +840,10 @@ void loadEntityComponents(
                     std::uint32_t
                 >()
             );
+
+        // ==================================================
+        // Position
+        // ==================================================
 
         if (
             record.contains(
@@ -744,6 +861,10 @@ void loadEntityComponents(
                 );
         }
 
+        // ==================================================
+        // Glyph
+        // ==================================================
+
         if (
             record.contains(
                 "glyph"
@@ -759,6 +880,10 @@ void loadEntityComponents(
                     )
                 );
         }
+
+        // ==================================================
+        // Name
+        // ==================================================
 
         if (
             record.contains(
@@ -776,58 +901,73 @@ void loadEntityComponents(
                 >();
         }
 
-        const auto& tags =
-            record.at(
+        // ==================================================
+        // Tags
+        // ==================================================
+
+        if (
+            record.contains(
                 "tags"
-            );
-
-        if (
-            tags.value(
-                "goblin",
-                false
             )
         )
         {
-            registry.emplace<
-                Goblin
-            >(entity);
+            const auto& tags =
+                record.at(
+                    "tags"
+                );
+
+            if (
+                tags.value(
+                    "goblin",
+                    false
+                )
+            )
+            {
+                registry.emplace<
+                    Goblin
+                >(entity);
+            }
+
+            if (
+                tags.value(
+                    "miner",
+                    false
+                )
+            )
+            {
+                registry.emplace<
+                    Miner
+                >(entity);
+            }
+
+            if (
+                tags.value(
+                    "hauler",
+                    false
+                )
+            )
+            {
+                registry.emplace<
+                    Hauler
+                >(entity);
+            }
+
+            if (
+                tags.value(
+                    "woodcutter",
+                    false
+                )
+            )
+            {
+                registry.emplace<
+                    Woodcutter
+                >(entity);
+            }
         }
 
-        if (
-            tags.value(
-                "miner",
-                false
-            )
-        )
-        {
-            registry.emplace<
-                Miner
-            >(entity);
-        }
-
-        if (
-            tags.value(
-                "hauler",
-                false
-            )
-        )
-        {
-            registry.emplace<
-                Hauler
-            >(entity);
-        }
-
-        if (
-            tags.value(
-                "woodcutter",
-                false
-            )
-        )
-        {
-            registry.emplace<
-                Woodcutter
-            >(entity);
-        }
+        // ==================================================
+        // Assigned job
+        // ==================================================
 
         if (
             record.contains(
@@ -840,8 +980,14 @@ void loadEntityComponents(
             >(entity).id =
                 record.at(
                     "assigned_job"
-                ).get<JobId>();
+                ).get<
+                    JobId
+                >();
         }
+
+        // ==================================================
+        // Movement path
+        // ==================================================
 
         if (
             record.contains(
@@ -859,6 +1005,10 @@ void loadEntityComponents(
                 );
         }
 
+        // ==================================================
+        // Carrying item
+        // ==================================================
+
         if (
             record.contains(
                 "carrying_item"
@@ -875,9 +1025,9 @@ void loadEntityComponents(
                 );
         }
 
-        // ==========================================
+        // ==================================================
         // Designation
-        // ==========================================
+        // ==================================================
 
         if (
             record.contains(
@@ -913,9 +1063,9 @@ void loadEntityComponents(
                 );
         }
 
-        // ==========================================
+        // ==================================================
         // Item
-        // ==========================================
+        // ==================================================
 
         if (
             record.contains(
@@ -1011,9 +1161,9 @@ void loadEntityComponents(
             }
         }
 
-        // ==========================================
+        // ==================================================
         // Stockpile
-        // ==========================================
+        // ==================================================
 
         if (
             record.contains(
@@ -1049,54 +1199,95 @@ void loadEntityComponents(
                     )
                 );
 
-            for (
-                const auto& type :
-                value.at(
+            // ==============================================
+            // Accepted item categories
+            // ==============================================
+
+            if (
+                value.contains(
                     "accepts"
                 )
             )
             {
-                stockpile.accepts.
-                    push_back(
-                        static_cast<
-                            ItemType
-                        >(
-                            type.get<int>()
-                        )
-                    );
+                for (
+                    const auto& type :
+                    value.at(
+                        "accepts"
+                    )
+                )
+                {
+                    stockpile.accepts.
+                        push_back(
+                            static_cast<
+                                ItemType
+                            >(
+                                type.get<int>()
+                            )
+                        );
+                }
             }
 
-            for (
-                const auto& item :
-                value.at(
+            // ==============================================
+            // Stored items
+            // ==============================================
+
+            if (
+                value.contains(
                     "current_items"
                 )
             )
             {
-                stockpile.currentItems.
-                    push_back(
-                        entityReferenceFromJson(
-                            item
-                        )
-                    );
+                for (
+                    const auto& item :
+                    value.at(
+                        "current_items"
+                    )
+                )
+                {
+                    stockpile.currentItems.
+                        push_back(
+                            entityReferenceFromJson(
+                                item
+                            )
+                        );
+                }
             }
 
-            for (
-                const auto& position :
-                value.at(
+            // ==============================================
+            // Destination reservations
+            // ==============================================
+
+            if (
+                value.contains(
                     "reserved_cells"
                 )
             )
             {
-                stockpile.reservedCells.
-                    push_back(
-                        positionFromJson(
-                            position
-                        )
-                    );
+                for (
+                    const auto& position :
+                    value.at(
+                        "reserved_cells"
+                    )
+                )
+                {
+                    stockpile.reservedCells.
+                        push_back(
+                            positionFromJson(
+                                position
+                            )
+                        );
+                }
             }
 
+            // ==============================================
+            // Optional capacity
+            // ==============================================
+
             if (
+                value.contains(
+                    "max_items"
+                )
+                &&
                 !value.at(
                     "max_items"
                 ).is_null()
@@ -1125,12 +1316,15 @@ json jobsToJson(
         json::array();
 
     for (
-        const auto& job :
+        const Job& job :
         jobBoard.jobs()
     )
     {
         result.push_back({
-            {"id", job.id},
+            {
+                "id",
+                job.id
+            },
             {
                 "type",
                 static_cast<int>(
@@ -1205,6 +1399,10 @@ jobsFromJson(
     std::vector<Job>
         jobs;
 
+    jobs.reserve(
+        records.size()
+    );
+
     for (
         const auto& record :
         records
@@ -1215,7 +1413,9 @@ jobsFromJson(
         job.id =
             record.at(
                 "id"
-            ).get<JobId>();
+            ).get<
+                JobId
+            >();
 
         job.type =
             static_cast<
@@ -1294,7 +1494,9 @@ jobsFromJson(
             );
 
         jobs.push_back(
-            std::move(job)
+            std::move(
+                job
+            )
         );
     }
 
@@ -1303,24 +1505,37 @@ jobsFromJson(
 
 }
 
+// ==================================================
+// Save
+// ==================================================
+
 void SaveManager::save(
     const Simulation& simulation,
-    const std::filesystem::path&
-        path
+    const std::filesystem::path& path
 )
 {
     json root;
 
-    root["format"] =
+    root[
+        "format"
+    ] =
         "ascii-universe-save";
 
-    root["version"] =
+    root[
+        "version"
+    ] =
         CurrentVersion;
 
     const GameMap& map =
         simulation.map();
 
-    root["world"] = {
+    // ==================================================
+    // World metadata
+    // ==================================================
+
+    root[
+        "world"
+    ] = {
         {
             "seed",
             simulation.worldSeed()
@@ -1336,10 +1551,34 @@ void SaveManager::save(
         {
             "depth",
             map.depth()
+        },
+
+        // Phase 5.5 world metadata.
+        {
+            "landform",
+            static_cast<int>(
+                simulation.landform()
+            )
+        },
+        {
+            "climate",
+            static_cast<int>(
+                simulation.climate()
+            )
         }
     };
 
-    root["world"]["tiles"] =
+    // ==================================================
+    // Tiles
+    //
+    // Stored in deterministic Z -> Y -> X order.
+    // ==================================================
+
+    root[
+        "world"
+    ][
+        "tiles"
+    ] =
         json::array();
 
     for (
@@ -1413,7 +1652,13 @@ void SaveManager::save(
         }
     }
 
-    root["simulation"] = {
+    // ==================================================
+    // Simulation runtime
+    // ==================================================
+
+    root[
+        "simulation"
+    ] = {
         {
             "tick",
             simulation.time().tick
@@ -1425,14 +1670,20 @@ void SaveManager::save(
         }
     };
 
-    root["entities"] =
+    // ==================================================
+    // Entities
+    // ==================================================
+
+    root[
+        "entities"
+    ] =
         json::array();
 
     const auto& registry =
         simulation.registry();
 
     for (
-        const auto entity :
+        const entt::entity entity :
         collectEntities(
             registry
         )
@@ -1448,10 +1699,20 @@ void SaveManager::save(
         );
     }
 
-    root["jobs"] =
+    // ==================================================
+    // Jobs
+    // ==================================================
+
+    root[
+        "jobs"
+    ] =
         jobsToJson(
             simulation.jobBoard()
         );
+
+    // ==================================================
+    // Ensure destination directory exists
+    // ==================================================
 
     if (
         path.has_parent_path()
@@ -1462,6 +1723,13 @@ void SaveManager::save(
                 path.parent_path()
             );
     }
+
+    // ==================================================
+    // Atomic-ish save
+    //
+    // Write completely to .tmp before replacing the
+    // actual save.
+    // ==================================================
 
     auto temporary =
         path;
@@ -1512,12 +1780,19 @@ void SaveManager::save(
     }
 }
 
+// ==================================================
+// Load
+// ==================================================
+
 std::unique_ptr<Simulation>
 SaveManager::load(
-    const std::filesystem::path&
-        path
+    const std::filesystem::path& path
 )
 {
+    // ==================================================
+    // Read JSON
+    // ==================================================
+
     std::ifstream input(
         path
     );
@@ -1533,7 +1808,12 @@ SaveManager::load(
 
     json root;
 
-    input >> root;
+    input >>
+        root;
+
+    // ==================================================
+    // Validate format
+    // ==================================================
 
     if (
         root.at(
@@ -1563,7 +1843,9 @@ SaveManager::load(
         throw std::runtime_error(
             "Save version "
             +
-            std::to_string(version)
+            std::to_string(
+                version
+            )
             +
             " is incompatible. "
             "This build requires version "
@@ -1575,6 +1857,10 @@ SaveManager::load(
             "."
         );
     }
+
+    // ==================================================
+    // World metadata
+    // ==================================================
 
     const auto& world =
         root.at(
@@ -1596,12 +1882,29 @@ SaveManager::load(
             "depth"
         ).get<int>();
 
-    const auto seed =
+    const std::uint64_t seed =
         world.at(
             "seed"
         ).get<
             std::uint64_t
         >();
+
+    if (
+        width <= 0
+        ||
+        height <= 0
+        ||
+        depth <= 0
+    )
+    {
+        throw std::runtime_error(
+            "Save contains invalid world dimensions."
+        );
+    }
+
+    // ==================================================
+    // Construct simulation
+    // ==================================================
 
     auto simulation =
         std::make_unique<
@@ -1613,27 +1916,67 @@ SaveManager::load(
             seed
         );
 
+    // ==================================================
+    // Phase 5.5 environment metadata
+    //
+    // These fields are optional.
+    //
+    // This intentionally allows older version-2 saves
+    // created before Phase 5.5 to continue loading.
+    // ==================================================
+
+    simulation->
+        setWorldEnvironment(
+            landformFromInt(
+                world.value(
+                    "landform",
+                    static_cast<int>(
+                        LandformType::Unknown
+                    )
+                )
+            ),
+            climateFromInt(
+                world.value(
+                    "climate",
+                    static_cast<int>(
+                        ClimateType::Unknown
+                    )
+                )
+            )
+        );
+
+    // ==================================================
+    // Tiles
+    // ==================================================
+
     const auto& tiles =
         world.at(
             "tiles"
         );
 
-    const std::size_t expected =
-        static_cast<std::size_t>(
+    const std::size_t expectedTileCount =
+        static_cast<
+            std::size_t
+        >(
             width
         )
         *
-        static_cast<std::size_t>(
+        static_cast<
+            std::size_t
+        >(
             height
         )
         *
-        static_cast<std::size_t>(
+        static_cast<
+            std::size_t
+        >(
             depth
         );
 
     if (
-        tiles.size() !=
-        expected
+        tiles.size()
+        !=
+        expectedTileCount
     )
     {
         throw std::runtime_error(
@@ -1733,6 +2076,17 @@ SaveManager::load(
         }
     }
 
+    // ==================================================
+    // Entities
+    //
+    // Two-pass restoration:
+    //
+    //     1. create IDs
+    //     2. restore components/references
+    //
+    // This allows forward references between entities.
+    // ==================================================
+
     auto& registry =
         simulation->
             registry();
@@ -1752,6 +2106,10 @@ SaveManager::load(
         entities
     );
 
+    // ==================================================
+    // Jobs
+    // ==================================================
+
     simulation->
         jobBoard().
         restore(
@@ -1761,6 +2119,10 @@ SaveManager::load(
                 )
             )
         );
+
+    // ==================================================
+    // Runtime state
+    // ==================================================
 
     const auto& runtime =
         root.at(

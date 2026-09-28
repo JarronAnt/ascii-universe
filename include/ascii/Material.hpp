@@ -11,23 +11,25 @@ enum class MaterialType
 {
     None,
 
-    // Surface / soil
+    // Existing values.
+    //
+    // IMPORTANT:
+    // Keep these in their original order because the
+    // current version-2 save format serializes
+    // MaterialType numerically.
     Grass,
     Soil,
     Clay,
     Sand,
 
-    // Sedimentary
     Limestone,
     Sandstone,
 
-    // Igneous / metamorphic
     Granite,
     Basalt,
     Marble,
     Obsidian,
 
-    // Fuel / minerals / ores
     Coal,
     IronOre,
     CopperOre,
@@ -36,9 +38,34 @@ enum class MaterialType
     GoldOre,
     Quartz,
 
-    // Wood
     OakWood,
-    PineWood
+    PineWood,
+
+    // ==================================================
+    // Phase 5.5 additions
+    //
+    // These are deliberately APPENDED rather than
+    // inserted above so old version-2 save material
+    // IDs remain valid.
+    // ==================================================
+
+    // Additional unconsolidated sediments / soils.
+    Silt,
+    Loam,
+    Peat,
+
+    // Sedimentary rocks.
+    Shale,
+    Dolomite,
+
+    // Igneous rocks.
+    Diorite,
+    Gabbro,
+
+    // Metamorphic rocks.
+    Slate,
+    Schist,
+    Gneiss
 };
 
 [[nodiscard]]
@@ -105,6 +132,36 @@ constexpr std::string_view materialName(
         case MaterialType::PineWood:
             return "Pine Wood";
 
+        case MaterialType::Silt:
+            return "Silt";
+
+        case MaterialType::Loam:
+            return "Loam";
+
+        case MaterialType::Peat:
+            return "Peat";
+
+        case MaterialType::Shale:
+            return "Shale";
+
+        case MaterialType::Dolomite:
+            return "Dolomite";
+
+        case MaterialType::Diorite:
+            return "Diorite";
+
+        case MaterialType::Gabbro:
+            return "Gabbro";
+
+        case MaterialType::Slate:
+            return "Slate";
+
+        case MaterialType::Schist:
+            return "Schist";
+
+        case MaterialType::Gneiss:
+            return "Gneiss";
+
         case MaterialType::None:
         default:
             return "None";
@@ -118,6 +175,10 @@ constexpr TerminalColor materialColor(
 {
     switch (material)
     {
+        // ==================================================
+        // Surface / soil
+        // ==================================================
+
         case MaterialType::Grass:
             return TerminalColor::BrightGreen;
 
@@ -130,11 +191,34 @@ constexpr TerminalColor materialColor(
         case MaterialType::Sand:
             return TerminalColor::BrightYellow;
 
+        case MaterialType::Silt:
+            return TerminalColor::Yellow;
+
+        case MaterialType::Loam:
+            return TerminalColor::BrightYellow;
+
+        case MaterialType::Peat:
+            return TerminalColor::BrightBlack;
+
+        // ==================================================
+        // Sedimentary
+        // ==================================================
+
         case MaterialType::Limestone:
             return TerminalColor::White;
 
         case MaterialType::Sandstone:
             return TerminalColor::Yellow;
+
+        case MaterialType::Shale:
+            return TerminalColor::BrightBlack;
+
+        case MaterialType::Dolomite:
+            return TerminalColor::BrightWhite;
+
+        // ==================================================
+        // Igneous
+        // ==================================================
 
         case MaterialType::Granite:
             return TerminalColor::BrightBlack;
@@ -142,11 +226,34 @@ constexpr TerminalColor materialColor(
         case MaterialType::Basalt:
             return TerminalColor::BrightBlack;
 
+        case MaterialType::Obsidian:
+            return TerminalColor::Magenta;
+
+        case MaterialType::Diorite:
+            return TerminalColor::White;
+
+        case MaterialType::Gabbro:
+            return TerminalColor::BrightBlack;
+
+        // ==================================================
+        // Metamorphic
+        // ==================================================
+
         case MaterialType::Marble:
             return TerminalColor::BrightWhite;
 
-        case MaterialType::Obsidian:
+        case MaterialType::Slate:
+            return TerminalColor::Blue;
+
+        case MaterialType::Schist:
             return TerminalColor::Magenta;
+
+        case MaterialType::Gneiss:
+            return TerminalColor::BrightWhite;
+
+        // ==================================================
+        // Ores / minerals
+        // ==================================================
 
         case MaterialType::Coal:
             return TerminalColor::BrightBlack;
@@ -168,6 +275,10 @@ constexpr TerminalColor materialColor(
 
         case MaterialType::Quartz:
             return TerminalColor::BrightMagenta;
+
+        // ==================================================
+        // Wood
+        // ==================================================
 
         case MaterialType::OakWood:
             return TerminalColor::Yellow;
@@ -191,7 +302,13 @@ constexpr bool isSoilMaterial(
         ||
         material == MaterialType::Clay
         ||
-        material == MaterialType::Sand;
+        material == MaterialType::Sand
+        ||
+        material == MaterialType::Silt
+        ||
+        material == MaterialType::Loam
+        ||
+        material == MaterialType::Peat;
 }
 
 [[nodiscard]]
@@ -242,7 +359,21 @@ constexpr bool isStoneMaterial(
         ||
         material == MaterialType::Marble
         ||
-        material == MaterialType::Obsidian;
+        material == MaterialType::Obsidian
+        ||
+        material == MaterialType::Shale
+        ||
+        material == MaterialType::Dolomite
+        ||
+        material == MaterialType::Diorite
+        ||
+        material == MaterialType::Gabbro
+        ||
+        material == MaterialType::Slate
+        ||
+        material == MaterialType::Schist
+        ||
+        material == MaterialType::Gneiss;
 }
 
 }

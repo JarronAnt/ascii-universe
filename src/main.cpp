@@ -4,7 +4,6 @@
 #include "ascii/SaveManager.hpp"
 #include "ascii/SDLFrontend.hpp"
 #include "ascii/Simulation.hpp"
-#include "ascii/Stockpiles.hpp"
 #include "ascii/WorldGenerator.hpp"
 
 #include <SDL3/SDL_main.h>
@@ -23,11 +22,16 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace ascii;
 
 namespace
 {
+
+// ==================================================
+// Signal handling
+// ==================================================
 
 volatile std::sig_atomic_t interrupted =
     0;
@@ -39,6 +43,10 @@ void handleSignal(
     interrupted =
         1;
 }
+
+// ==================================================
+// Command-line options
+// ==================================================
 
 struct Options
 {
@@ -63,43 +71,87 @@ struct Options
     > stopAfterTicks;
 };
 
+// ==================================================
+// Help
+// ==================================================
+
 void printHelp()
 {
     std::cout
         << "ASCII Universe\n\n"
 
         << "Usage:\n"
+
         << "  ./ascii_universe\n"
-        << "  ./ascii_universe --seed 12345\n"
-        << "  ./ascii_universe --load saves/autosave.json\n"
-        << "  ./ascii_universe --seed 12345 --save saves/world.json\n"
-        << "  ./ascii_universe --seed 12345 --stop-after 100\n\n"
+
+        << "  ./ascii_universe "
+           "--seed 12345\n"
+
+        << "  ./ascii_universe "
+           "--load saves/autosave.json\n"
+
+        << "  ./ascii_universe "
+           "--seed 12345 "
+           "--save saves/world.json\n"
+
+        << "  ./ascii_universe "
+           "--seed 12345 "
+           "--stop-after 100\n\n"
 
         << "Controls:\n"
+
         << "  WASD              Pan camera\n"
+
         << "  Arrow keys        Move tile cursor\n"
+
         << "  [ ] / PgDn PgUp   Change Z-level\n"
+
         << "  Mouse             Hover/select tiles\n"
+
         << "  Left drag         Paint designation\n"
+
         << "  Right click       Return to Inspect\n"
+
         << "  M                 Mine mode\n"
+
         << "  T                 Fell-tree mode\n"
+
         << "  V                 Dig-down mode\n"
+
         << "  U                 Dig-up mode\n"
+
         << "  P                 Stockpile mode\n"
+
         << "  X                 Cancel mode\n"
+
         << "  I                 Inspect mode\n"
+
         << "  R                 Cycle stockpile filter\n"
+
         << "  C                 Configure stockpile under cursor\n"
+
         << "  Enter             Apply current mode to cursor\n"
+
         << "  Tab               Cycle goblins\n"
+
         << "  G                 Select goblin at cursor\n"
+
         << "  F                 Follow selected goblin\n"
+
+        << "  Home              Center camera on cursor\n"
+
         << "  1/2/3/4           1x/2x/4x/8x speed\n"
+
         << "  Space             Pause\n"
+
         << "  F5                Save\n"
+
         << "  Q                 Save and quit\n";
 }
+
+// ==================================================
+// Arguments
+// ==================================================
 
 Options parseArguments(
     int argc,
@@ -225,6 +277,8 @@ Options parseArguments(
         );
     }
 
+    // Loading without an explicit --save path means
+    // continue saving back into the loaded file.
     if (
         options.loadPath
         &&
@@ -238,10 +292,16 @@ Options parseArguments(
     return options;
 }
 
+// ==================================================
+// Random seed
+// ==================================================
+
 std::uint64_t generateSeed()
 {
     return
-        static_cast<std::uint64_t>(
+        static_cast<
+            std::uint64_t
+        >(
             std::chrono::
                 high_resolution_clock::
                 now().
@@ -249,6 +309,10 @@ std::uint64_t generateSeed()
                 count()
         );
 }
+
+// ==================================================
+// Goblin creation
+// ==================================================
 
 void createGoblin(
     entt::registry& registry,
@@ -310,20 +374,41 @@ void createGoblin(
     }
 }
 
+// ==================================================
+// New world creation
+// ==================================================
+
 std::unique_ptr<Simulation>
 createNewWorld(
     std::uint64_t seed,
     Position& initialFocus
 )
 {
+    // ==================================================
+    // Phase 5.5 world dimensions
+    //
+    // The previous 60x28x12 test world was too small for:
+    //
+    // - large-scale landforms
+    // - real geological strata
+    // - rivers
+    // - lakes
+    // - forest regions
+    // - meaningful ore distributions
+    // - substantial underground caverns
+    //
+    // Phase 5's camera already handles viewing only a
+    // portion of the larger map.
+    // ==================================================
+
     constexpr int WorldWidth =
-        60;
+        96;
 
     constexpr int WorldHeight =
-        28;
+        64;
 
     constexpr int WorldDepth =
-        12;
+        24;
 
     auto simulation =
         std::make_unique<
@@ -335,16 +420,33 @@ createNewWorld(
             seed
         );
 
+    // ==================================================
+    // Generate natural world
+    // ==================================================
+
     const auto layout =
         WorldGenerator::generate(
             simulation->map(),
             seed
         );
 
+    simulation->setWorldEnvironment(
+        layout.landform,
+        layout.climate
+    );
+
     auto& registry =
         simulation->registry();
 
-    // Miner underground.
+    // ==================================================
+    // Starting population
+    //
+    // All goblins now begin at the naturally selected
+    // embark site.
+    //
+    // There is no pre-carved underground fortress.
+    // ==================================================
+
     createGoblin(
         registry,
         "Uru",
@@ -355,7 +457,6 @@ createNewWorld(
         false
     );
 
-    // Hauler on the surface.
     createGoblin(
         registry,
         "Kesh",
@@ -366,7 +467,6 @@ createNewWorld(
         false
     );
 
-    // Woodcutter on the surface.
     createGoblin(
         registry,
         "Brakka",
@@ -377,20 +477,30 @@ createNewWorld(
         true
     );
 
-    // Phase 5:
+    // ==================================================
+    // Phase 5 controls remain authoritative.
     //
-    // NO programmatic stockpile.
-    // NO programmatic mining.
-    // NO programmatic tree felling.
-    // NO programmatic stair excavation.
+    // World generation does NOT:
     //
-    // The player must issue those orders.
+    // - create a stockpile
+    // - designate mining
+    // - designate tree felling
+    // - designate stairs
+    // - carve an artificial fortress
+    //
+    // The player must issue all fortress orders through
+    // the actual in-game controls.
+    // ==================================================
 
     initialFocus =
-        layout.haulerSpawn;
+        layout.embarkCenter;
 
     return simulation;
 }
+
+// ==================================================
+// Choose camera focus after loading
+// ==================================================
 
 Position loadedInitialFocus(
     entt::registry& registry,
@@ -406,7 +516,10 @@ Position loadedInitialFocus(
     std::vector<entt::entity>
         entities;
 
-    for (auto entity : goblins)
+    for (
+        auto entity :
+        goblins
+    )
     {
         entities.push_back(
             entity
@@ -422,13 +535,19 @@ Position loadedInitialFocus(
         )
         {
             return
-                entt::to_integral(first)
+                entt::to_integral(
+                    first
+                )
                 <
-                entt::to_integral(second);
+                entt::to_integral(
+                    second
+                );
         }
     );
 
-    if (!entities.empty())
+    if (
+        !entities.empty()
+    )
     {
         return
             registry.get<
@@ -438,6 +557,7 @@ Position loadedInitialFocus(
             );
     }
 
+    // Fallback for a save with no goblins.
     return Position{
         map.width() / 2,
         map.height() / 2,
@@ -447,6 +567,10 @@ Position loadedInitialFocus(
 
 }
 
+// ==================================================
+// Main
+// ==================================================
+
 int main(
     int argc,
     char** argv
@@ -454,6 +578,10 @@ int main(
 {
     try
     {
+        // ==================================================
+        // Signals
+        // ==================================================
+
         std::signal(
             SIGINT,
             handleSignal
@@ -464,11 +592,19 @@ int main(
             handleSignal
         );
 
+        // ==================================================
+        // Arguments
+        // ==================================================
+
         const Options options =
             parseArguments(
                 argc,
                 argv
             );
+
+        // ==================================================
+        // Load/create simulation
+        // ==================================================
 
         std::unique_ptr<
             Simulation
@@ -512,6 +648,10 @@ int main(
                 );
         }
 
+        // ==================================================
+        // Player control state
+        // ==================================================
+
         PlayerController controller{
             simulation->map(),
             initialFocus
@@ -525,6 +665,10 @@ int main(
             "New fortress. Issue your first order."
         );
 
+        // ==================================================
+        // SDL frontend
+        // ==================================================
+
         SDLFrontend frontend{
             1440,
             900
@@ -532,6 +676,10 @@ int main(
 
         bool running =
             true;
+
+        // ==================================================
+        // Timing
+        // ==================================================
 
         using Clock =
             std::chrono::
@@ -549,6 +697,10 @@ int main(
             lastAutosaveTick =
                 simulation->
                     time().tick;
+
+        // ==================================================
+        // Main game loop
+        // ==================================================
 
         while (
             running
@@ -573,6 +725,10 @@ int main(
             previousTime =
                 now;
 
+            // ==============================================
+            // SDL input
+            // ==============================================
+
             const PlayerInput input =
                 frontend.pollInput(
                     controller.state(),
@@ -589,10 +745,18 @@ int main(
                 break;
             }
 
+            // ==============================================
+            // Player commands
+            // ==============================================
+
             controller.handleInput(
                 input,
                 *simulation
             );
+
+            // ==============================================
+            // Manual save
+            // ==============================================
 
             if (
                 input.save
@@ -612,6 +776,10 @@ int main(
                 );
             }
 
+            // ==============================================
+            // Simulation speed
+            // ==============================================
+
             const auto scaledElapsed =
                 controller.scaleElapsed(
                     elapsed
@@ -628,11 +796,18 @@ int main(
                 );
             }
 
+            // ==============================================
+            // Camera follow
+            // ==============================================
+
             controller.updateFollow(
                 *simulation
             );
 
-            // Autosave every 100 simulation ticks.
+            // ==============================================
+            // Autosave every 100 simulation ticks
+            // ==============================================
+
             if (
                 simulation->
                     time().tick
@@ -656,6 +831,10 @@ int main(
                 );
             }
 
+            // ==============================================
+            // Headless/testing stop-after helper
+            // ==============================================
+
             if (
                 options.stopAfterTicks
                 &&
@@ -671,11 +850,16 @@ int main(
                     false;
             }
 
+            // ==============================================
+            // Render
+            // ==============================================
+
             frontend.render(
                 *simulation,
                 controller.state()
             );
 
+            // Avoid unnecessarily spinning one CPU core.
             std::this_thread::
                 sleep_for(
                     std::chrono::
@@ -684,6 +868,10 @@ int main(
                         }
                 );
         }
+
+        // ==================================================
+        // Final save
+        // ==================================================
 
         SaveManager::save(
             *simulation,

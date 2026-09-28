@@ -759,6 +759,30 @@ Simulation::worldSeed() const
     return worldSeed_;
 }
 
+void Simulation::setWorldEnvironment(
+    LandformType landform,
+    ClimateType climate
+)
+{
+    landform_ =
+        landform;
+
+    climate_ =
+        climate;
+}
+
+LandformType
+Simulation::landform() const
+{
+    return landform_;
+}
+
+ClimateType
+Simulation::climate() const
+{
+    return climate_;
+}
+
 void Simulation::restoreRuntimeState(
     std::uint64_t tick,
     std::uint64_t rngState

@@ -9,7 +9,7 @@
 #include "Pathfinder.hpp"
 #include "Position.hpp"
 #include "Random.hpp"
-
+#include "WorldEnvironment.hpp"
 #include <entt/entt.hpp>
 
 #include <chrono>
@@ -83,6 +83,17 @@ public:
     [[nodiscard]]
     std::uint64_t worldSeed() const;
 
+    void setWorldEnvironment(
+    LandformType landform,
+    ClimateType climate
+    );
+
+    [[nodiscard]]
+    LandformType landform() const;
+
+    [[nodiscard]]
+    ClimateType climate() const;
+
     void restoreRuntimeState(
         std::uint64_t tick,
         std::uint64_t rngState
@@ -120,6 +131,14 @@ private:
         char character,
         TerminalColor color
     );
+
+   LandformType landform_{
+    LandformType::Unknown
+    };
+
+    ClimateType climate_{
+        ClimateType::Unknown
+    }; 
 
     [[nodiscard]]
     bool hasOutstandingDesignationAt(

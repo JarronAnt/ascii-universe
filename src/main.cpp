@@ -1,7 +1,6 @@
 #include "ascii/Color.hpp"
 #include "ascii/Components.hpp"
-#include "ascii/Items.hpp"
-#include "ascii/Jobs.hpp"
+#include "ascii/PlayerController.hpp"
 #include "ascii/SaveManager.hpp"
 #include "ascii/SDLFrontend.hpp"
 #include "ascii/Simulation.hpp"
@@ -15,7 +14,6 @@
 #include <algorithm>
 #include <chrono>
 #include <csignal>
-#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -25,7 +23,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <vector>
 
 using namespace ascii;
 
@@ -43,20 +40,15 @@ void handleSignal(
         1;
 }
 
-// ==================================================
-// Command-line options
-// ==================================================
-
 struct Options
 {
     std::optional<
         std::filesystem::path
     > loadPath;
 
-    std::filesystem::path
-        savePath{
-            "saves/autosave.json"
-        };
+    std::filesystem::path savePath{
+        "saves/autosave.json"
+    };
 
     bool savePathExplicit{
         false
@@ -71,10 +63,6 @@ struct Options
     > stopAfterTicks;
 };
 
-// ==================================================
-// Arguments
-// ==================================================
-
 void printHelp()
 {
     std::cout
@@ -87,12 +75,30 @@ void printHelp()
         << "  ./ascii_universe --seed 12345 --save saves/world.json\n"
         << "  ./ascii_universe --seed 12345 --stop-after 100\n\n"
 
-        << "SDL Controls:\n"
-        << "  [ , PageDown   Lower Z-level\n"
-        << "  ] . PageUp     Higher Z-level\n"
-        << "  Space          Pause/unpause\n"
-        << "  S              Save\n"
-        << "  Q / Escape     Save and quit\n";
+        << "Controls:\n"
+        << "  WASD              Pan camera\n"
+        << "  Arrow keys        Move tile cursor\n"
+        << "  [ ] / PgDn PgUp   Change Z-level\n"
+        << "  Mouse             Hover/select tiles\n"
+        << "  Left drag         Paint designation\n"
+        << "  Right click       Return to Inspect\n"
+        << "  M                 Mine mode\n"
+        << "  T                 Fell-tree mode\n"
+        << "  V                 Dig-down mode\n"
+        << "  U                 Dig-up mode\n"
+        << "  P                 Stockpile mode\n"
+        << "  X                 Cancel mode\n"
+        << "  I                 Inspect mode\n"
+        << "  R                 Cycle stockpile filter\n"
+        << "  C                 Configure stockpile under cursor\n"
+        << "  Enter             Apply current mode to cursor\n"
+        << "  Tab               Cycle goblins\n"
+        << "  G                 Select goblin at cursor\n"
+        << "  F                 Follow selected goblin\n"
+        << "  1/2/3/4           1x/2x/4x/8x speed\n"
+        << "  Space             Pause\n"
+        << "  F5                Save\n"
+        << "  Q                 Save and quit\n";
 }
 
 Options parseArguments(
@@ -232,10 +238,6 @@ Options parseArguments(
     return options;
 }
 
-// ==================================================
-// Seed
-// ==================================================
-
 std::uint64_t generateSeed()
 {
     return
@@ -247,10 +249,6 @@ std::uint64_t generateSeed()
                 count()
         );
 }
-
-// ==================================================
-// Goblin helper
-// ==================================================
 
 void createGoblin(
     entt::registry& registry,
@@ -312,14 +310,10 @@ void createGoblin(
     }
 }
 
-// ==================================================
-// New world
-// ==================================================
-
 std::unique_ptr<Simulation>
 createNewWorld(
     std::uint64_t seed,
-    int& initialViewZ
+    Position& initialFocus
 )
 {
     constexpr int WorldWidth =
@@ -347,13 +341,10 @@ createNewWorld(
             seed
         );
 
-    initialViewZ =
-        layout.defaultViewZ;
-
     auto& registry =
         simulation->registry();
 
-    // Uru — underground miner.
+    // Miner underground.
     createGoblin(
         registry,
         "Uru",
@@ -364,7 +355,7 @@ createNewWorld(
         false
     );
 
-    // Kesh — cross-level hauler.
+    // Hauler on the surface.
     createGoblin(
         registry,
         "Kesh",
@@ -375,7 +366,7 @@ createNewWorld(
         false
     );
 
-    // Brakka — surface woodcutter.
+    // Woodcutter on the surface.
     createGoblin(
         registry,
         "Brakka",
@@ -386,195 +377,75 @@ createNewWorld(
         true
     );
 
-    const auto stockpile =
-        simulation->createStockpile(
-            layout.stockpileMin,
-            layout.stockpileMax,
-            {
-                ItemType::Stone,
-                ItemType::Ore,
-                ItemType::Soil,
-                ItemType::Log
-            }
-        );
+    // Phase 5:
+    //
+    // NO programmatic stockpile.
+    // NO programmatic mining.
+    // NO programmatic tree felling.
+    // NO programmatic stair excavation.
+    //
+    // The player must issue those orders.
 
-    if (
-        stockpile ==
-        entt::null
-    )
-    {
-        throw std::runtime_error(
-            "Failed to create starting stockpile."
-        );
-    }
-
-    for (
-        const auto target :
-        layout.miningTargets
-    )
-    {
-        simulation->designateMine(
-            target
-        );
-    }
-
-    for (
-        const auto target :
-        layout.treeTargets
-    )
-    {
-        simulation->
-            designateFellTree(
-                target
-            );
-    }
-
-    simulation->designateDigDown(
-        layout.digDownTarget
-    );
-
-    simulation->designateDigUp(
-        layout.digUpTarget
-    );
+    initialFocus =
+        layout.haulerSpawn;
 
     return simulation;
 }
 
-// ==================================================
-// Loaded camera Z
-// ==================================================
-
-int defaultLoadedViewZ(
+Position loadedInitialFocus(
     entt::registry& registry,
     const GameMap& map
 )
 {
-    auto stockpiles =
-        registry.view<
-            Stockpile
-        >();
-
-    for (
-        auto entity :
-        stockpiles
-    )
-    {
-        return std::clamp(
-            stockpiles.get<
-                Stockpile
-            >(entity).bounds.min.z,
-            0,
-            map.depth() - 1
-        );
-    }
-
     auto goblins =
         registry.view<
             Goblin,
             Position
         >();
 
-    int highest =
-        0;
+    std::vector<entt::entity>
+        entities;
 
-    for (
-        auto entity :
-        goblins
-    )
+    for (auto entity : goblins)
     {
-        highest =
-            std::max(
-                highest,
-                goblins.get<
-                    Position
-                >(entity).z
+        entities.push_back(
+            entity
+        );
+    }
+
+    std::sort(
+        entities.begin(),
+        entities.end(),
+        [](
+            entt::entity first,
+            entt::entity second
+        )
+        {
+            return
+                entt::to_integral(first)
+                <
+                entt::to_integral(second);
+        }
+    );
+
+    if (!entities.empty())
+    {
+        return
+            registry.get<
+                Position
+            >(
+                entities.front()
             );
     }
 
-    return std::clamp(
-        highest,
-        0,
+    return Position{
+        map.width() / 2,
+        map.height() / 2,
         map.depth() - 1
-    );
-}
-
-// ==================================================
-// HUD helpers
-// ==================================================
-
-std::size_t countWaterCells(
-    const GameMap& map,
-    int z
-)
-{
-    std::size_t result =
-        0;
-
-    for (
-        int y = 0;
-        y < map.height();
-        ++y
-    )
-    {
-        for (
-            int x = 0;
-            x < map.width();
-            ++x
-        )
-        {
-            if (
-                map.at(
-                    x,
-                    y,
-                    z
-                ).liquid.depth > 0
-            )
-            {
-                ++result;
-            }
-        }
-    }
-
-    return result;
-}
-
-std::size_t countItemType(
-    entt::registry& registry,
-    ItemType type
-)
-{
-    std::size_t result =
-        0;
-
-    auto view =
-        registry.view<
-            Item
-        >();
-
-    for (
-        auto entity :
-        view
-    )
-    {
-        if (
-            view.get<
-                Item
-            >(entity).type ==
-            type
-        )
-        {
-            ++result;
-        }
-    }
-
-    return result;
+    };
 }
 
 }
-
-// ==================================================
-// Main
-// ==================================================
 
 int main(
     int argc,
@@ -603,10 +474,10 @@ int main(
             Simulation
         > simulation;
 
-        int viewZ =
-            0;
+        Position initialFocus{};
 
-        std::string lastMessage;
+        bool loaded =
+            false;
 
         if (
             options.loadPath
@@ -617,14 +488,14 @@ int main(
                     *options.loadPath
                 );
 
-            viewZ =
-                defaultLoadedViewZ(
+            loaded =
+                true;
+
+            initialFocus =
+                loadedInitialFocus(
                     simulation->registry(),
                     simulation->map()
                 );
-
-            lastMessage =
-                "Loaded save.";
         }
         else
         {
@@ -637,346 +508,30 @@ int main(
             simulation =
                 createNewWorld(
                     seed,
-                    viewZ
+                    initialFocus
                 );
-
-            lastMessage =
-                "Generated new world.";
         }
 
-        auto& map =
-            simulation->map();
-
-        auto& registry =
-            simulation->registry();
-
-        // ==================================================
-        // SDL frontend
-        // ==================================================
-
-        SDLFrontend frontend{
-            1280,
-            720
+        PlayerController controller{
+            simulation->map(),
+            initialFocus
         };
 
-        bool paused =
-            false;
+        controller.setStatus(
+            loaded
+            ?
+            "Loaded fortress."
+            :
+            "New fortress. Issue your first order."
+        );
+
+        SDLFrontend frontend{
+            1440,
+            900
+        };
 
         bool running =
             true;
-
-        // ==================================================
-        // HUD
-        // ==================================================
-
-        const auto buildHud =
-            [&]()
-            {
-                const auto& jobs =
-                    simulation->jobBoard();
-
-                std::size_t onGround =
-                    0;
-
-                std::size_t carried =
-                    0;
-
-                std::size_t stored =
-                    0;
-
-                auto itemStates =
-                    registry.view<
-                        Item,
-                        ItemState
-                    >();
-
-                for (
-                    auto entity :
-                    itemStates
-                )
-                {
-                    switch (
-                        itemStates.get<
-                            ItemState
-                        >(entity).location
-                    )
-                    {
-                        case ItemLocation::OnGround:
-                            ++onGround;
-                            break;
-
-                        case ItemLocation::Carried:
-                            ++carried;
-                            break;
-
-                        case ItemLocation::Stockpiled:
-                            ++stored;
-                            break;
-                    }
-                }
-
-                std::vector<std::string>
-                    lines;
-
-                lines.push_back(
-                    "ASCII Universe | Tick "
-                    +
-                    std::to_string(
-                        simulation->
-                            time().tick
-                    )
-                    +
-                    " | Z "
-                    +
-                    std::to_string(
-                        viewZ
-                    )
-                    +
-                    "/"
-                    +
-                    std::to_string(
-                        map.depth() - 1
-                    )
-                );
-
-                lines.push_back(
-                    std::string{
-                        paused
-                        ?
-                        "PAUSED"
-                        :
-                        (
-                            simulation->
-                                hasOutstandingWork()
-                            ?
-                            "WORKING"
-                            :
-                            "IDLE"
-                        )
-                    }
-                    +
-                    " | Seed "
-                    +
-                    std::to_string(
-                        simulation->
-                            worldSeed()
-                    )
-                );
-
-                lines.push_back(
-                    "Jobs  available:"
-                    +
-                    std::to_string(
-                        jobs.count(
-                            JobState::Available
-                        )
-                    )
-                    +
-                    "  assigned:"
-                    +
-                    std::to_string(
-                        jobs.count(
-                            JobState::Assigned
-                        )
-                    )
-                    +
-                    "  complete:"
-                    +
-                    std::to_string(
-                        jobs.count(
-                            JobState::Complete
-                        )
-                    )
-                    +
-                    "  cancelled:"
-                    +
-                    std::to_string(
-                        jobs.count(
-                            JobState::Cancelled
-                        )
-                    )
-                );
-
-                lines.push_back(
-                    "Items  ground:"
-                    +
-                    std::to_string(
-                        onGround
-                    )
-                    +
-                    "  carried:"
-                    +
-                    std::to_string(
-                        carried
-                    )
-                    +
-                    "  stored:"
-                    +
-                    std::to_string(
-                        stored
-                    )
-                );
-
-                lines.push_back(
-                    "Resources  stone:"
-                    +
-                    std::to_string(
-                        countItemType(
-                            registry,
-                            ItemType::Stone
-                        )
-                    )
-                    +
-                    "  ore:"
-                    +
-                    std::to_string(
-                        countItemType(
-                            registry,
-                            ItemType::Ore
-                        )
-                    )
-                    +
-                    "  soil:"
-                    +
-                    std::to_string(
-                        countItemType(
-                            registry,
-                            ItemType::Soil
-                        )
-                    )
-                    +
-                    "  logs:"
-                    +
-                    std::to_string(
-                        countItemType(
-                            registry,
-                            ItemType::Log
-                        )
-                    )
-                );
-
-                lines.push_back(
-                    "Water cells on this Z: "
-                    +
-                    std::to_string(
-                        countWaterCells(
-                            map,
-                            viewZ
-                        )
-                    )
-                );
-
-                auto goblins =
-                    registry.view<
-                        Goblin,
-                        Name,
-                        Position
-                    >();
-
-                for (
-                    auto entity :
-                    goblins
-                )
-                {
-                    const auto& name =
-                        goblins.get<
-                            Name
-                        >(entity).value;
-
-                    const auto& position =
-                        goblins.get<
-                            Position
-                        >(entity);
-
-                    std::string profession =
-                        "Goblin";
-
-                    if (
-                        registry.all_of<
-                            Miner
-                        >(entity)
-                    )
-                    {
-                        profession =
-                            "Miner";
-                    }
-                    else if (
-                        registry.all_of<
-                            Hauler
-                        >(entity)
-                    )
-                    {
-                        profession =
-                            "Hauler";
-                    }
-                    else if (
-                        registry.all_of<
-                            Woodcutter
-                        >(entity)
-                    )
-                    {
-                        profession =
-                            "Woodcutter";
-                    }
-
-                    lines.push_back(
-                        name
-                        +
-                        " | "
-                        +
-                        profession
-                        +
-                        " | ("
-                        +
-                        std::to_string(
-                            position.x
-                        )
-                        +
-                        ","
-                        +
-                        std::to_string(
-                            position.y
-                        )
-                        +
-                        ","
-                        +
-                        std::to_string(
-                            position.z
-                        )
-                        +
-                        ")"
-                    );
-                }
-
-                lines.push_back(
-                    "Legend: # rock  . floor  T tree  1-7 water  < up  > down  X up/down  ^ ramp  = stockpile"
-                );
-
-                lines.push_back(
-                    "[/,/PgDn lower Z | ]/./PgUp higher Z | SPACE pause | S save | Q/ESC quit"
-                );
-
-                lines.push_back(
-                    lastMessage
-                );
-
-                return lines;
-            };
-
-        // ==================================================
-        // Initial frame
-        // ==================================================
-
-        frontend.render(
-            map,
-            registry,
-            viewZ,
-            buildHud()
-        );
-
-        // ==================================================
-        // Timing
-        // ==================================================
 
         using Clock =
             std::chrono::
@@ -985,17 +540,15 @@ int main(
         auto previousTime =
             Clock::now();
 
-        const std::uint64_t startingTick =
-            simulation->
-                time().tick;
+        const std::uint64_t
+            startingTick =
+                simulation->
+                    time().tick;
 
-        std::uint64_t lastAutosaveTick =
-            simulation->
-                time().tick;
-
-        // ==================================================
-        // Game loop
-        // ==================================================
+        std::uint64_t
+            lastAutosaveTick =
+                simulation->
+                    time().tick;
 
         while (
             running
@@ -1012,25 +565,22 @@ int main(
                         std::chrono::
                             nanoseconds
                     >(
-                        now -
+                        now
+                        -
                         previousTime
                     );
 
             previousTime =
                 now;
 
-            bool redraw =
-                false;
-
-            // ==============================================
-            // SDL input/events
-            // ==============================================
-
-            const FrontendActions actions =
-                frontend.pollActions();
+            const PlayerInput input =
+                frontend.pollInput(
+                    controller.state(),
+                    simulation->map()
+                );
 
             if (
-                actions.quit
+                input.quit
             )
             {
                 running =
@@ -1039,89 +589,13 @@ int main(
                 break;
             }
 
-            if (
-                actions.togglePause
-            )
-            {
-                paused =
-                    !paused;
-
-                lastMessage =
-                    paused
-                    ?
-                    "Simulation paused."
-                    :
-                    "Simulation resumed.";
-
-                previousTime =
-                    Clock::now();
-
-                redraw =
-                    true;
-            }
+            controller.handleInput(
+                input,
+                *simulation
+            );
 
             if (
-                actions.viewZDown
-            )
-            {
-                const int next =
-                    std::max(
-                        0,
-                        viewZ - 1
-                    );
-
-                if (
-                    next !=
-                    viewZ
-                )
-                {
-                    viewZ =
-                        next;
-
-                    lastMessage =
-                        "Viewing Z "
-                        +
-                        std::to_string(
-                            viewZ
-                        );
-
-                    redraw =
-                        true;
-                }
-            }
-
-            if (
-                actions.viewZUp
-            )
-            {
-                const int next =
-                    std::min(
-                        map.depth() - 1,
-                        viewZ + 1
-                    );
-
-                if (
-                    next !=
-                    viewZ
-                )
-                {
-                    viewZ =
-                        next;
-
-                    lastMessage =
-                        "Viewing Z "
-                        +
-                        std::to_string(
-                            viewZ
-                        );
-
-                    redraw =
-                        true;
-                }
-            }
-
-            if (
-                actions.save
+                input.save
             )
             {
                 SaveManager::save(
@@ -1129,114 +603,78 @@ int main(
                     options.savePath
                 );
 
-                lastMessage =
+                controller.setStatus(
                     "Saved to "
                     +
                     options.
                         savePath.
-                        string();
+                        string()
+                );
+            }
 
-                redraw =
-                    true;
+            const auto scaledElapsed =
+                controller.scaleElapsed(
+                    elapsed
+                );
+
+            if (
+                scaledElapsed >
+                std::chrono::
+                    nanoseconds::zero()
+            )
+            {
+                simulation->advance(
+                    scaledElapsed
+                );
+            }
+
+            controller.updateFollow(
+                *simulation
+            );
+
+            // Autosave every 100 simulation ticks.
+            if (
+                simulation->
+                    time().tick
+                >=
+                lastAutosaveTick
+                +
+                100
+            )
+            {
+                SaveManager::save(
+                    *simulation,
+                    options.savePath
+                );
+
+                lastAutosaveTick =
+                    simulation->
+                        time().tick;
+
+                controller.setStatus(
+                    "Autosaved."
+                );
             }
 
             if (
-                actions.redraw
+                options.stopAfterTicks
+                &&
+                simulation->
+                    time().tick
+                >=
+                startingTick
+                +
+                *options.stopAfterTicks
             )
             {
-                redraw =
-                    true;
+                running =
+                    false;
             }
 
-            // ==============================================
-            // Simulation
-            // ==============================================
-
-            if (!paused)
-            {
-                const int ticks =
-                    simulation->advance(
-                        elapsed
-                    );
-
-                if (
-                    ticks > 0
-                )
-                {
-                    redraw =
-                        true;
-                }
-
-                // ------------------------------------------
-                // Autosave every 100 simulation ticks
-                // ------------------------------------------
-
-                if (
-                    simulation->
-                        time().tick
-                    >=
-                    lastAutosaveTick
-                    +
-                    100
-                )
-                {
-                    SaveManager::save(
-                        *simulation,
-                        options.savePath
-                    );
-
-                    lastAutosaveTick =
-                        simulation->
-                            time().tick;
-
-                    lastMessage =
-                        "Autosaved.";
-
-                    redraw =
-                        true;
-                }
-
-                // ------------------------------------------
-                // Testing helper
-                // ------------------------------------------
-
-                if (
-                    options.stopAfterTicks
-                    &&
-                    simulation->
-                        time().tick
-                    >=
-                    startingTick
-                    +
-                    *options.stopAfterTicks
-                )
-                {
-                    running =
-                        false;
-
-                    break;
-                }
-            }
-            else
-            {
-                // Prevent fixed-step catchup after a pause.
-                previousTime =
-                    Clock::now();
-            }
-
-            // ==============================================
-            // SDL render
-            // ==============================================
-
-            if (redraw)
-            {
-                frontend.render(
-                    map,
-                    registry,
-                    viewZ,
-                    buildHud()
-                );
-            }
+            frontend.render(
+                *simulation,
+                controller.state()
+            );
 
             std::this_thread::
                 sleep_for(
@@ -1246,10 +684,6 @@ int main(
                         }
                 );
         }
-
-        // ==================================================
-        // Final save
-        // ==================================================
 
         SaveManager::save(
             *simulation,

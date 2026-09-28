@@ -22,25 +22,21 @@ bool validDesignation(
 )
 {
     if (
-        !map.inBounds(
-            position
-        )
+        !map.inBounds(position)
     )
     {
         return false;
     }
 
     const Tile& tile =
-        map.at(
-            position
-        );
+        map.at(position);
 
     switch (type)
     {
         case DesignationType::Mine:
             return
                 tile.shape ==
-                    TileShape::Wall;
+                TileShape::Wall;
 
         case DesignationType::DigDown:
         {
@@ -60,10 +56,8 @@ bool validDesignation(
             };
 
             return
-                map.at(
-                    below
-                ).shape ==
-                    TileShape::Wall;
+                map.at(below).shape ==
+                TileShape::Wall;
         }
 
         case DesignationType::DigUp:
@@ -85,16 +79,14 @@ bool validDesignation(
             };
 
             return
-                map.at(
-                    above
-                ).shape ==
-                    TileShape::Wall;
+                map.at(above).shape ==
+                TileShape::Wall;
         }
 
         case DesignationType::FellTree:
             return
                 tile.feature ==
-                    TileFeature::Tree;
+                TileFeature::Tree;
     }
 
     return false;
@@ -122,6 +114,47 @@ JobType jobTypeForDesignation(
     return JobType::Mine;
 }
 
+bool hasUnfinishedWorkAt(
+    const JobBoard& jobBoard,
+    Position position
+)
+{
+    for (
+        const Job& job :
+        jobBoard.jobs()
+    )
+    {
+        if (
+            job.type ==
+            JobType::Haul
+        )
+        {
+            continue;
+        }
+
+        if (
+            job.target !=
+            position
+        )
+        {
+            continue;
+        }
+
+        if (
+            job.state ==
+                JobState::Available
+            ||
+            job.state ==
+                JobState::Assigned
+        )
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 }
 
 void deduplicateDesignations(
@@ -138,16 +171,13 @@ void deduplicateDesignations(
     std::vector<entt::entity>
         entities;
 
-    for (
-        auto entity :
-        view
-    )
+    for (auto entity : view)
     {
         if (
             view.get<
                 DesignationLifecycle
             >(entity).state ==
-                DesignationState::Active
+            DesignationState::Active
         )
         {
             entities.push_back(
@@ -164,31 +194,19 @@ void deduplicateDesignations(
         std::tuple<
             int,
             int,
-            int,
             int
         >
     > seen;
 
-    for (
-        auto entity :
-        entities
-    )
+    for (auto entity : entities)
     {
-        const auto& designation =
-            registry.get<
-                Designation
-            >(entity);
-
-        const auto& position =
+        const Position position =
             registry.get<
                 Position
             >(entity);
 
         const auto key =
             std::make_tuple(
-                static_cast<int>(
-                    designation.type
-                ),
                 position.x,
                 position.y,
                 position.z
@@ -229,16 +247,13 @@ void createDesignationJobs(
     std::vector<entt::entity>
         entities;
 
-    for (
-        auto entity :
-        view
-    )
+    for (auto entity : view)
     {
         if (
             view.get<
                 DesignationLifecycle
             >(entity).state ==
-                DesignationState::Active
+            DesignationState::Active
         )
         {
             entities.push_back(
@@ -251,10 +266,7 @@ void createDesignationJobs(
         entities
     );
 
-    for (
-        auto entity :
-        entities
-    )
+    for (auto entity : entities)
     {
         auto& lifecycle =
             registry.get<
@@ -275,6 +287,24 @@ void createDesignationJobs(
             !validDesignation(
                 map,
                 designation.type,
+                position
+            )
+        )
+        {
+            lifecycle.state =
+                DesignationState::Ignored;
+
+            hideDesignation(
+                registry,
+                entity
+            );
+
+            continue;
+        }
+
+        if (
+            hasUnfinishedWorkAt(
+                jobBoard,
                 position
             )
         )

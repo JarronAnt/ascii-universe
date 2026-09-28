@@ -15,7 +15,8 @@ enum class DesignationState
 {
     Active,
     Ignored,
-    Consumed
+    Consumed,
+    Cancelled
 };
 
 struct Designation

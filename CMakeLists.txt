@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     ascii_universe
-    VERSION 0.3.0
+    VERSION 0.4.0
     LANGUAGES CXX
 )
 
@@ -38,12 +38,6 @@ FetchContent_MakeAvailable(json)
 
 # ==================================================
 # SDL3
-#
-# macOS:
-#   brew install sdl3
-#
-# Arch/CachyOS:
-#   sudo pacman -S sdl3
 # ==================================================
 
 find_package(
@@ -63,6 +57,7 @@ add_executable(
     src/main.cpp
 
     src/Simulation.cpp
+    src/PlayerController.cpp
     src/SDLFrontend.cpp
     src/WorldGenerator.cpp
     src/SaveManager.cpp

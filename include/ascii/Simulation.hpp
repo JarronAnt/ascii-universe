@@ -27,15 +27,14 @@ struct SimulationTime
 class Simulation
 {
 public:
-    static constexpr
-        std::uint32_t TickRate =
-            10;
+    static constexpr std::uint32_t
+        TickRate = 10;
 
     static constexpr
         std::chrono::nanoseconds
-            FixedStep{
-                100'000'000
-            };
+        FixedStep{
+            100'000'000
+        };
 
     Simulation(
         int width,
@@ -45,8 +44,7 @@ public:
     );
 
     int advance(
-        std::chrono::nanoseconds
-            elapsed
+        std::chrono::nanoseconds elapsed
     );
 
     void step();
@@ -67,11 +65,19 @@ public:
         Position position
     );
 
+    bool cancelDesignationAt(
+        Position position
+    );
+
     entt::entity createStockpile(
         Position min,
         Position max,
-        std::vector<ItemType>
-            accepts
+        std::vector<ItemType> accepts
+    );
+
+    bool configureStockpileAt(
+        Position position,
+        std::vector<ItemType> accepts
     );
 
     [[nodiscard]]
@@ -83,20 +89,26 @@ public:
     );
 
     GameMap& map();
+
     const GameMap& map() const;
 
     entt::registry& registry();
+
     const entt::registry&
-        registry() const;
+    registry() const;
 
     Random& random();
+
     const Random& random() const;
 
     JobBoard& jobBoard();
-    const JobBoard& jobBoard() const;
+
+    const JobBoard&
+    jobBoard() const;
 
     [[nodiscard]]
-    const SimulationTime& time() const;
+    const SimulationTime&
+    time() const;
 
     [[nodiscard]]
     bool hasOutstandingWork();
@@ -108,6 +120,11 @@ private:
         char character,
         TerminalColor color
     );
+
+    [[nodiscard]]
+    bool hasOutstandingDesignationAt(
+        Position position
+    ) const;
 
     GameMap map_;
 
